@@ -31,23 +31,24 @@ type CreateVaultFieldName = Exclude<
 
 export type CreateVaultErrors = Partial<
   Record<CreateVaultFieldName, string>
-> & {
+>
+ & {
   milestones?: CreateVaultMilestoneErrors;
 };
 
-const STELLAR_PUBLIC_KEY = /^G[A-Z2-7]{55}$/;
-const USDC_AMOUNT = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
+const USCC_AMOUNT = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
 
 export const MILESTONE_TITLE_MAX = 100;
 export const MILESTONE_CRITERIA_MAX = 500;
 
-export function isValidStellarAddress(address: string): boolean {
-  return STELLAR_PUBLIC_KEY.test(address.trim());
-}
+import { isValidStellarAddress, isAccountAddress } from './stellarAddress';
+import { isApiEnabled } from '../services/api';
+export { isValidStellarAddress, isAccountAddress };
+
 
 export function isValidUsdcAmount(amount: string): boolean {
   const normalized = amount.trim();
-  if (!USDC_AMOUNT.test(normalized)) return false;
+  if (!USCC_AMOUNT.test(normalized)) return false;
   return Number(normalized) > 0;
 }
 
@@ -118,16 +119,34 @@ export function validateCreateVault(
     errors.deadline = "Choose a future deadline.";
   }
 
-  if (!isValidStellarAddress(successAddress)) {
-    errors.successAddress = "Enter a valid Stellar public key starting with G.";
+  if (isApiEnabled()) {
+    if (!isValidStellarAddress(successAddress)) {
+      errors.successAddress = "Enter a valid Stellar public key starting with G or C.";
+    } else if (!isAccountAddress(successAddress)) {
+      errors.successAddress = "Enter a Stellar account address (starts with G). Contract addresses aren't supported yet.";
+    }
+
+    if (!isValidStellarAddress(failureAddress)) {
+      errors.failureAddress = "Enter a valid Stellar public key starting with G or C.";
+    } else if (!isAccountAddress(failureAddress)) {
+      errors.failureAddress = "Enter a Stellar account address (starts with G). Contract addresses aren't supported yet.";
+    } else if (successAddress === failureAddress) {
+      errors.failureAddress =
+        "Failure destination must be different from success destination.";
+    }
+  } else {
+    if (!isValidStellarAddress(successAddress)) {
+      errors.successAddress = "Enter a valid Stellar public key starting with G or C.";
+    }
+
+    if (!isValidStellarAddress(failureAddress)) {
+      errors.failureAddress = "Enter a valid Stellar public key starting with G or C.";
+    } else if (successAddress === failureAddress) {
+      errors.failureAddress =
+        "Failure destination must be different from success destination.";
+    }
   }
 
-  if (!isValidStellarAddress(failureAddress)) {
-    errors.failureAddress = "Enter a valid Stellar public key starting with G.";
-  } else if (successAddress === failureAddress) {
-    errors.failureAddress =
-      "Failure destination must be different from success destination.";
-  }
 
   // Validate verifierAddress only when provided and non-empty
   if (values.verifierAddress !== undefined) {
@@ -135,7 +154,7 @@ export function validateCreateVault(
     if (verifierAddress) {
       if (!isValidStellarAddress(verifierAddress)) {
         errors.verifierAddress =
-          "Enter a valid Stellar public key starting with G.";
+          "Enter a valid Stellar public key starting with G or C.";
       } else if (verifierAddress === successAddress) {
         errors.verifierAddress =
           "Verifier must be different from the success destination.";

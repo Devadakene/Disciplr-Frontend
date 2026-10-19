@@ -9,7 +9,9 @@ interface FieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, '
 
 export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   ({ label, hint, error, id, required, disabled, style, ...props }, ref) => {
-  const fieldId = id || `field-${label.toLowerCase().replace(/\s+/g, '-')}`
+  const reactId = React.useId()
+  // Ensure the fallback id is unique to prevent duplicate-id collisions (#1269)
+  const fieldId = id || `field-${label.toLowerCase().replace(/\s+/g, '-')}-${reactId.replace(/:/g, '')}`
   const errorId = error ? `${fieldId}-error` : undefined
   const hintId = hint && !error ? `${fieldId}-hint` : undefined
   const describedBy = [errorId, hintId].filter(Boolean).join(' ') || undefined

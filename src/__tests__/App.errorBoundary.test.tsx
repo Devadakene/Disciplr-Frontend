@@ -4,7 +4,7 @@
  * Verifies that when a page component throws during render:
  *   - The header / nav / wallet-connect button remain in the DOM.
  *   - The broken route shows the ErrorBoundary fallback UI.
- *   - The fallback offers a "Go home" link so the user can navigate away.
+ *   - The fallback offers a "Contact support" link and a Refresh button.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -33,6 +33,14 @@ vi.mock('../components/TrustlineBanner', () => ({
 
 vi.mock('../components/Notification/NotificationBell', () => ({
   default: () => null,
+}));
+
+vi.mock('../components/ThemeToggle', () => ({
+  default: () => <button type="button">Theme toggle</button>,
+}));
+
+vi.mock('../utils/usePrefersReducedMotion', () => ({
+  usePrefersReducedMotion: () => false,
 }));
 
 vi.mock('../components/NetworkMismatchBanner', () => ({
@@ -125,6 +133,20 @@ describe('ErrorBoundary — scoped to route content (issue #654)', () => {
     consoleSpy.mockRestore();
   });
 
+  it('renders the command palette trigger in the shared layout', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Layout>
+          <div>Healthy page</div>
+        </Layout>
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole('button', { name: /open command palette/i }),
+    ).toBeInTheDocument();
+  });
+
   it('shows the "Something went wrong" fallback inside main after a route crash', () => {
     const { consoleSpy } = renderWithCrashingRoute('/');
     const main = screen.getByRole('main');
@@ -140,11 +162,11 @@ describe('ErrorBoundary — scoped to route content (issue #654)', () => {
     consoleSpy.mockRestore();
   });
 
-  it('renders a "Go home" navigation link inside the fallback', () => {
+  it('renders a "Contact support" link inside the fallback', () => {
     const { consoleSpy } = renderWithCrashingRoute('/');
-    const homeLink = screen.getByRole('link', { name: /go home/i });
-    expect(homeLink).toBeInTheDocument();
-    expect(homeLink).toHaveAttribute('href', '/');
+    const supportLink = screen.getByRole('link', { name: /contact support/i });
+    expect(supportLink).toBeInTheDocument();
+    expect(supportLink).toHaveAttribute('href', expect.stringContaining('mailto:support@disciplr.app'));
     consoleSpy.mockRestore();
   });
 

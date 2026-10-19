@@ -1,7 +1,8 @@
-﻿import { CountdownDeadline, timeRemaining } from './CountdownDeadline';
+import { CountdownDeadline, timeRemaining } from './CountdownDeadline';
 import { Text } from './Text';
-import { deadlineUrgency, type UrgencyTier } from './VaultCard';
+import { deadlineUrgency, type UrgencyTier } from '../utils/vaultUrgency';
 import type { Deadline } from '../utils/dashboard';
+import { downloadIcsEvent, isValidIcsDeadline } from '../utils/ics';
 
 interface UpcomingDeadlinesProps {
   deadlines: Deadline[];
@@ -143,6 +144,32 @@ export default function UpcomingDeadlines({ deadlines }: UpcomingDeadlinesProps)
                   {item.amount.toLocaleString()} USDC
                 </Text>
                 <CountdownDeadline deadline={item.deadline} />
+                <button
+                  onClick={() =>
+                    downloadIcsEvent({
+                      title: item.name,
+                      deadline: item.deadline,
+                      description: `Vault deadline: ${item.amount.toLocaleString()} USDC`,
+                      uid: item.id,
+                    })
+                  }
+                  disabled={!isValidIcsDeadline(item.deadline)}
+                  aria-label={`Export ${item.name} deadline to calendar`}
+                  style={{
+                    marginTop: '0.5rem',
+                    padding: '3px 10px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                    cursor: isValidIcsDeadline(item.deadline) ? 'pointer' : 'not-allowed',
+                    opacity: isValidIcsDeadline(item.deadline) ? 1 : 0.4,
+                  }}
+                >
+                  Add to Calendar
+                </button>
               </div>
             );
           })}

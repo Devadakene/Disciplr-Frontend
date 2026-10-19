@@ -30,18 +30,23 @@ describe('deadlinePresets', () => {
     it('computes correct date for 90 days offset', () => {
       const now = new Date('2026-01-15T12:00:00')
       const result = computeFutureDeadline(90, now)
-      expect(result).toBe('2026-04-14T12:00')
+      expect(result).toBe('2026-04-15T12:00')
     })
 
     it('uses current date when now is not provided', () => {
       const before = new Date()
       const result = computeFutureDeadline(1)
       const after = new Date()
-      
-      // Result should be within a reasonable range
+
+      // computeFutureDeadline(1) adds one day on top of "now", so the
+      // result should fall within [before + 1 day, after + 1 day]. The
+      // formatted string also drops seconds, so allow a small buffer on
+      // both sides for that truncation plus test execution time.
+      const oneDayMs = 24 * 60 * 60 * 1000
+      const buffer = 60000
       const resultDate = new Date(result)
-      expect(resultDate.getTime()).toBeGreaterThanOrEqual(before.getTime())
-      expect(resultDate.getTime()).toBeLessThanOrEqual(after.getTime() + 60000) // small buffer
+      expect(resultDate.getTime()).toBeGreaterThanOrEqual(before.getTime() + oneDayMs - buffer)
+      expect(resultDate.getTime()).toBeLessThanOrEqual(after.getTime() + oneDayMs + buffer)
     })
 
     it('handles month boundary correctly', () => {

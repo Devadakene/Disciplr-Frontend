@@ -2,15 +2,11 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, beforeEach } from "vitest";
 import NotificationBell from "../NotificationBell";
-import { useNotification } from "@/Zustand/Store";
+import { useNotification, type NotificationItem } from "@/Zustand/Store";
 
-function resetStore(notificationItems: any[]) {
+function resetStore(notificationItems: Partial<NotificationItem>[]) {
   useNotification.setState({
-    notification: notificationItems,
-    unreadCount: notificationItems.filter((n) => {
-      const isRead = n.isRead !== undefined ? n.isRead : false;
-      return !isRead;
-    }).length,
+    notification: notificationItems as NotificationItem[],
   });
 }
 

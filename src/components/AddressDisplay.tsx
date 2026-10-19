@@ -1,4 +1,5 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
+import { Check, Copy, ExternalLink } from 'lucide-react';
 import { truncateMiddle } from '../utils/truncate';
 import type { WalletNetwork } from '../context/WalletContext';
 import { getExplorerAccountUrl } from '../utils/explorer';
@@ -11,8 +12,6 @@ interface AddressDisplayProps {
     tailChars?: number;
 }
 
-
-
 export function AddressDisplay({
     address,
     network,
@@ -23,7 +22,7 @@ export function AddressDisplay({
 
     const display = truncateMiddle(address, chars, tailChars);
     const isValid = isValidStellarAddress(address);
-    const explorerUrl = getExplorerAccountUrl(address, network);
+    const explorerUrl = getExplorerAccountUrl(address, network ?? null);
 
     const copy = () => {
         navigator.clipboard.writeText(address).then(() => {
@@ -56,22 +55,22 @@ export function AddressDisplay({
                     background: 'none', border: 'none', cursor: 'pointer',
                     color: copied ? 'var(--success)' : 'var(--muted)',
                     padding: '0 2px', fontSize: 13, lineHeight: 1,
+                    display: 'flex', alignItems: 'center'
                 }}
             >
-                {copied ? 'âœ“' : 'âŽ˜'}
+                {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
-            {network != null && explorerUrl && (
+            {network != null && isValid && explorerUrl && (
                 <a
                     href={explorerUrl}
                     target="_blank" rel="noopener noreferrer"
                     title="View on Stellar Expert"
                     aria-label={`View ${address} on Stellar Expert`}
-                    style={{ color: 'var(--accent)', fontSize: 12, lineHeight: 1 }}
+                    style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center' }}
                 >
-                    â†—
+                    <ExternalLink size={14} />
                 </a>
             )}
         </span>
     );
 }
-

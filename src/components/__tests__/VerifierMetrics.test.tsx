@@ -78,7 +78,8 @@ describe('VerifierMetrics component', () => {
 
     it('displays the correct urgent count', () => {
       render(<VerifierMetrics />);
-      const urgentCard = screen.getByLabelText('Urgent: 2');
+      // p-2 has daysRemaining=2 → urgent=1 (p-1 overdue is mutually exclusive)
+      const urgentCard = screen.getByLabelText('Urgent: 1');
       expect(urgentCard).toBeInTheDocument();
     });
 

@@ -9,6 +9,7 @@ import {
 import type { ValidationHistoryStatusFilter } from '../utils/paginate';
 import { downloadCsv, toCsv } from '../utils/csv';
 import { StatusChip } from '../components/StatusChip';
+import { mapValidationStatusToChipStatus } from '../utils/verifierStatus';
 import {
   VALIDATION_HISTORY_PAGE_SIZE_OPTIONS,
   persistValidationHistoryPageSize,
@@ -17,7 +18,7 @@ import {
 
 export default function ValidationHistory() {
   const navigate = useNavigate();
-  const { validationHistory } = useVerifierStore();
+  const validationHistory = useVerifierStore((state) => state.validationHistory);
   const [statusFilter, setStatusFilter] = useState<ValidationHistoryStatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -260,7 +261,7 @@ export default function ValidationHistory() {
                 <div className="flex flex-col gap-2 md:w-1/3">
                   <div className="flex items-center gap-3">
                     <StatusChip
-                      status={task.status === 'pending' ? 'pending_validation' : task.status}
+                      status={mapValidationStatusToChipStatus(task.status)}
                       className="uppercase"
                       size="sm"
                     />
@@ -271,7 +272,7 @@ export default function ValidationHistory() {
                   <Text role="body" as="h3">{task.vaultName}</Text>
                   <Text role="body" as="p" className="text-sm font-medium">{task.milestone}</Text>
                   <span
-                    className="text-xs px-2 py-1 rounded font-mono w-max"
+                    className="text-xs px-2 py-1 rounded font-mono max-w-full break-all"
                     style={{
                       background: 'var(--bg)',
                       color: 'var(--text)',

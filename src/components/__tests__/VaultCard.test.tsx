@@ -5,10 +5,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import VaultCard, {
   VaultCardProps,
+} from '../../components/VaultCard';
+import {
   deadlineUrgency,
   URGENCY_CRITICAL_MS,
   URGENCY_SOON_MS,
-} from '../../components/VaultCard';
+} from '../../utils/vaultUrgency';
+import type { VaultStatus } from '../../types/vault';
 
 // Freeze time for consistent deadline calculations
 const fixedNow = new Date('2024-07-01T00:00:00Z');
@@ -73,12 +76,38 @@ describe('VaultCard', () => {
     expect(screen.getByLabelText(/Deadline Jul 15, 2024/)).toHaveTextContent('14d 10h remaining');
   });
 
-  it('displays correct status badge', () => {
+  it('displays the shared status chip', () => {
     renderCard();
     const badge = screen.getByText('Active');
     expect(badge).toBeInTheDocument();
-    // Badge should use the accent color variable
+    expect(badge).toHaveClass('status-chip');
     expect(badge).toHaveStyle({ color: 'var(--accent)' });
+  });
+
+  it.each(['active', 'pending_validation', 'completed', 'failed', 'cancelled'] as const)(
+    'renders a shared status chip for %s',
+    (status) => {
+      const labels: Record<VaultStatus, string> = {
+        active: 'Active',
+        pending_validation: 'Pending Validation',
+        completed: 'Completed',
+        failed: 'Failed',
+        cancelled: 'Cancelled',
+      };
+
+      renderCard({ ...baseProps, status });
+      const chip = screen.getByLabelText(labels[status]);
+      expect(chip).toHaveClass('status-chip');
+      expect(chip).toHaveTextContent(labels[status]);
+    }
+  );
+
+  it('uses the shared cancelled chip styling', () => {
+    renderCard({ ...baseProps, status: 'cancelled' });
+    const chip = screen.getByLabelText('Cancelled');
+    expect(chip).toHaveStyle({
+      background: 'color-mix(in srgb, var(--muted) 10%, transparent)',
+    });
   });
 
   it('renders an accessible vault progress bar', () => {

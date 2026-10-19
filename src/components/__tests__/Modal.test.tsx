@@ -49,8 +49,8 @@ describe('Modal', () => {
       </Modal>
     );
 
-    // Click the backdrop overlay (which is the dialog itself)
-    const overlay = screen.getByRole('dialog');
+    // Click the backdrop overlay (parent of the dialog content)
+    const overlay = screen.getByRole('dialog').parentElement!;
     fireEvent.click(overlay);
 
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -95,11 +95,11 @@ describe('Modal', () => {
       </Modal>
     );
 
-    const overlay = screen.getByRole('dialog');
-    expect(overlay).toHaveClass('custom-overlay-class');
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveClass('custom-content-class');
 
-    const contentContainer = overlay.firstChild;
-    expect(contentContainer).toHaveClass('custom-content-class');
+    const overlay = dialog.parentElement!;
+    expect(overlay).toHaveClass('custom-overlay-class');
   });
 
   it('respects reduced-motion preference', () => {

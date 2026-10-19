@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useId } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { Modal } from './Modal';
 import { Text } from './Text';
@@ -44,7 +44,7 @@ export function ShortcutsHelp({ shortcuts = SHORTCUTS }: ShortcutsHelpProps) {
       onClose={() => setIsOpen(false)}
       ariaLabelledBy={titleId}
       ariaDescribedBy={descId}
-      contentClassName="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col"
+      contentClassName="modal-content-default rounded-xl max-w-md w-full overflow-hidden flex flex-col"
     >
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
         <Text role="subtitle" as="h2" id={titleId}>

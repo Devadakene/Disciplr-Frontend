@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { X } from 'lucide-react';
 import FocusTrap from 'focus-trap-react';
 import NavLink from './NavLink';
 import { WalletConnectButton } from './Wallet/WalletConnectButton';
+import { toCloseHandler, toDrawerOpen } from '../utils/drawerState';
 
 interface MobileDrawerProps {
   isOpen: boolean;
@@ -12,17 +13,37 @@ interface MobileDrawerProps {
 export default function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  // Boundary validation: coerce hostile props so a non-boolean `isOpen` or a
+  // missing/non-function `onClose` can never render a contradictory drawer or
+  // crash on interaction. Only the literal boolean `true` opens the drawer.
+  // Memoized so the identity is stable as long as `onClose` is — the Escape
+  // effect below depends on it and must not re-subscribe on every render.
+  const open = toDrawerOpen(isOpen);
+  const handleClose = useMemo(() => toCloseHandler(onClose) ?? (() => {}), [onClose]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!open) {
+      // Reset so the next open cycle re-captures the focus trigger.
+      wasOpenRef.current = false;
+      return;
+    }
 
-    triggerRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Capture the focus trigger once per open cycle. Re-running this effect
+    // (e.g. because a parent re-render changed the `onClose` identity) must
+    // not overwrite the trigger with whatever element currently has focus —
+    // which would be inside the drawer and break focus restoration on close.
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      triggerRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        handleClose();
       }
     };
 
@@ -30,21 +51,31 @@ export default function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
 
     return () => {
       document.removeEventListener('keydown', handleKey);
-      triggerRef.current?.focus();
+      const trigger = triggerRef.current;
+      // Recovery: only restore focus when the trigger is still connected. If
+      // it was removed mid-interaction (e.g. an interrupted navigation), skip
+      // the restore so focus never lands on a detached node.
+      if (trigger && trigger.isConnected) {
+        trigger.focus();
+      }
     };
-  }, [isOpen, onClose]);
+  }, [open, handleClose]);
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    }
+    if (!open) return;
+
+    // Scroll lock, applied atomically with the open state. Save the previous
+    // value so cleanup restores the exact prior style instead of clobbering
+    // unrelated page styles with ''.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
 
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousOverflow;
     };
-  }, [isOpen]);
+  }, [open]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
     <FocusTrap
@@ -60,7 +91,7 @@ export default function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
         returnFocusOnDeactivate: false,
       }}
     >
-      <div className="mobile-drawer-backdrop" onClick={onClose}>
+      <div className="mobile-drawer-backdrop" onClick={handleClose}>
         <nav
           className="mobile-drawer"
           role="dialog"
@@ -74,22 +105,28 @@ export default function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
           <h2 id="mobile-drawer-title" className="mobile-drawer-title">
             Navigation
           </h2>
-          <button className="mobile-drawer-close" onClick={onClose} aria-label="Close navigation drawer">
+          <button className="mobile-drawer-close" onClick={handleClose} aria-label="Close navigation drawer">
             <X size={24} />
           </button>
-          <NavLink to="/" className="mobile-drawer-link" onClick={onClose}>
+          <NavLink to="/" className="mobile-drawer-link" onClick={handleClose}>
             Home
           </NavLink>
-          <NavLink to="/transactions" className="mobile-drawer-link" onClick={onClose}>
+          <NavLink to="/transactions" className="mobile-drawer-link" onClick={handleClose}>
             Transactions
           </NavLink>
-          <NavLink to="/verifier" className="mobile-drawer-link" onClick={onClose}>
+          <NavLink to="/dashboard" className="mobile-drawer-link" onClick={handleClose}>
+            Dashboard
+          </NavLink>
+          <NavLink to="/vaults" className="mobile-drawer-link" onClick={handleClose}>
+            Vaults
+          </NavLink>
+          <NavLink to="/verifier" className="mobile-drawer-link" onClick={handleClose}>
             Verifier
           </NavLink>
-          <NavLink to="/analytics" className="mobile-drawer-link" onClick={onClose}>
+          <NavLink to="/analytics" className="mobile-drawer-link" onClick={handleClose}>
             Analytics
           </NavLink>
-          <NavLink to="/vaults/create" className="mobile-drawer-link" onClick={onClose}>
+          <NavLink to="/vaults/create" className="mobile-drawer-link" onClick={handleClose}>
             Create Vault
           </NavLink>
           <WalletConnectButton />

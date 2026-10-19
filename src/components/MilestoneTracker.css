@@ -16,6 +16,25 @@
   border-radius: var(--radius);
 }
 
+.milestone-tracker-anomalies {
+  margin-bottom: var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-4);
+  color: var(--danger);
+  background: var(--bg);
+  border: var(--border-width-1) solid var(--danger);
+  border-radius: var(--radius);
+}
+
+.milestone-tracker-anomaly-title {
+  margin: 0 0 var(--spacing-1);
+  font-weight: 700;
+}
+
+.milestone-tracker-anomaly-list {
+  margin: 0;
+  padding-left: var(--spacing-4);
+}
+
 .milestone-tracker-step {
   display: grid;
   grid-template-columns: var(--touch-target) 1fr;
@@ -127,6 +146,17 @@
 
 .milestone-tracker-step.is-failed .milestone-tracker-badge,
 .milestone-tracker-step.is-failed .milestone-tracker-marker {
+  color: var(--danger);
+}
+
+.milestone-tracker-step.is-invalid {
+  border-left-color: var(--danger);
+  background: var(--surface-raised);
+  opacity: 0.9;
+}
+
+.milestone-tracker-step.is-invalid .milestone-tracker-badge,
+.milestone-tracker-step.is-invalid .milestone-tracker-marker {
   color: var(--danger);
 }
 

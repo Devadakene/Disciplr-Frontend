@@ -1,8 +1,9 @@
 # Zustand Store Contracts
 
-Disciplr utilizes Zustand to manage global client-side state across two main stores:
+Disciplr utilizes Zustand to manage global client-side state across three main stores:
 1. `useVerifierStore`: Manages validation tasks (pending queue and verification history) for verifiers.
 2. `useNotification`: Manages user notifications, unread status, and batch read operations.
+3. `useToastStore`: Manages the transient toast/snackbar queue (push, dismiss, auto-expiry).
 
 This document describes the state structures, the transition mechanics, and recommendations for React components consuming these stores.
 
@@ -95,26 +96,58 @@ Derived from example notifications, each item has the following structure:
 #### Store State Fields
 - `notification: NotificationItem[]`
   The list of all notifications currently loaded into memory.
-- `unreadCount: number`
-  The quantity of items in `notification` where `isRead` is `false`.
+
+> **Derived value — not stored state:** The unread count is not persisted as a
+> separate field. Use the `useUnreadCount` selector instead:
+> ```ts
+> import { useUnreadCount } from '@/Zustand/Store';
+> const unreadCount = useUnreadCount(); // notification.filter(n => !n.isRead).length
+> ```
+> This eliminates the risk of the count drifting out of sync with the
+> notification array after any mutator.
 
 ### Mutators and Effects
 
 #### `setNotification(value: NotificationItem[]): void`
-- **Effect**: Replaces the list of notifications entirely and recalculates `unreadCount` based on the new array.
+- **Effect**: Replaces the notification list entirely. The unread count is
+  automatically up-to-date via `useUnreadCount` — no manual recompute needed.
 
 #### `markRead(id: string): void`
-- **Effect**: Locates the notification by its `id`. If found and `isRead` is `false`, it sets `isRead` to `true` and decrements `unreadCount` by 1.
-- **Idempotence**: Calling `markRead` multiple times for the same `id` has no additional effect and will not decrement `unreadCount` below `0`.
+- **Effect**: Locates the notification by its `id`. If found and `isRead` is `false`, it sets `isRead` to `true`.
+- **Idempotence**: Calling `markRead` multiple times for the same `id` has no additional effect.
 - **Edge Cases**: If the ID is not found, it is a safe no-op.
 
 #### `markAllRead(): void`
-- **Effect**: Iterates through all notifications, updating any item with `isRead: false` to `isRead: true`. Resets `unreadCount` to `0`.
+- **Effect**: Iterates through all notifications, updating any item with `isRead: false` to `isRead: true`.
 - **Idempotence**: Can be called repeatedly; if all notifications are already read, state remains unchanged.
 
 ---
 
-## 3. Best Practices & React Component Consumption
+## 3. Toast Store (`useToastStore`)
+
+The toast store is defined in [toastStore.ts](../src/Zustand/toastStore.ts) and powers
+transient feedback (wallet connect, copy-to-clipboard, validation messages). The visual
+surface is `ToastViewport`, mounted once in `Layout`. See
+[toast.md](../design-system/documentation/toast.md) for full API and token mapping.
+
+### State Shapes
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Generated id returned by `push`. |
+| `message` | `string` | User-facing copy. |
+| `variant` | `'info' \| 'success' \| 'error'` | Maps to semantic color tokens. |
+| `createdAt` | `number` | `Date.now()` at push time. |
+
+### Mutators
+
+- `push({ message, variant?, durationMs? }): string` — enqueue, schedule auto-dismiss, FIFO-evict when over `TOAST_MAX_VISIBLE`.
+- `dismiss(id): void` — remove one toast and cancel its timer.
+- `clear(): void` — remove all toasts and cancel all timers.
+
+---
+
+## 4. Best Practices & React Component Consumption
 
 To avoid unnecessary component re-renders when using Zustand, always select specific state slices rather than consuming the entire store object.
 

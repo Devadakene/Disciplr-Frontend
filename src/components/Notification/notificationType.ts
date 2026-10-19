@@ -17,7 +17,7 @@ export type NotificationTypeKey =
 
 export interface NotificationTypeMapping {
   icon: IconType;
-  /** CSS color value (hex, named, or var(--token)) */
+  /** CSS color value (hex, named, or a CSS variable reference) */
   color: string;
   /** Accessible screen-reader label for this notification category */
   label: string;
@@ -25,44 +25,44 @@ export interface NotificationTypeMapping {
 
 const FALLBACK_MAPPING: NotificationTypeMapping = {
   icon: CiBellOn,
-  color: "#667589",
+  color: "var(--muted)",
   label: "Notification",
 };
 
 const NOTIFICATION_TYPE_MAP: Record<NotificationTypeKey, NotificationTypeMapping> = {
   vault_created_successfully: {
     icon: SiInternetarchive,
-    color: "#667589",
+    color: "var(--muted)",
     label: "Vault created successfully",
   },
   milestone_validated: {
     icon: HiOutlineCheckBadge,
-    color: "#f97316",
+    color: "var(--warning)",
     label: "Milestone validated",
   },
   vault_deadline_approaching: {
     icon: FiAlertTriangle,
-    color: "#ef4444",
+    color: "var(--danger)",
     label: "Vault deadline approaching",
   },
   funds_released: {
     icon: FaSquareArrowUpRight,
-    color: "#00c389",
+    color: "var(--success)",
     label: "Funds released",
   },
   funds_redirected: {
     icon: FiRefreshCw,
-    color: "#f59e0b",
+    color: "var(--accent)",
     label: "Funds redirected",
   },
   verification_requested: {
     icon: FaUserCheck,
-    color: "#3b82f6",
+    color: "var(--accent)",
     label: "Verification requested",
   },
   system_announcement: {
     icon: IoMegaphoneOutline,
-    color: "#667589",
+    color: "var(--muted)",
     label: "System announcement",
   },
 };

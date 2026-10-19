@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import { X, AlertTriangle, CheckCircle, XCircle, ExternalLink } from 'lucide-react';
 import { Text } from './Text';
@@ -20,6 +20,11 @@ interface ConfirmationModalProps {
     message: string;
     confirmLabel?: string;
   };
+
+  /** When true, the action is already in flight — the modal locks its
+   *  controls so the confirmation can never fire twice. Belt-and-braces
+   *  alongside the single-flight guard in the vault service. */
+  isSubmitting?: boolean;
 }
 
 /**
@@ -42,6 +47,7 @@ export function ConfirmationModal({
   evidenceUrl,
   affectedCount,
   simpleConfirm,
+  isSubmitting = false,
 }: ConfirmationModalProps) {
   const [decision, setDecision] = useState<'approve' | 'reject' | null>(initialDecision || null);
   const [notes, setNotes] = useState(initialNotes);
@@ -67,7 +73,7 @@ export function ConfirmationModal({
         onClose={onClose}
         ariaLabelledBy="modal-title"
         overlayClassName="fixed inset-0 z-[var(--z-index-modal)] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-        contentClassName="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col"
+        contentClassName="modal-content-default rounded-xl max-w-lg w-full overflow-hidden flex flex-col"
       >
         <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
           <Text role="title" as="h2" id="modal-title" className="text-gray-900 dark:text-white">
@@ -75,7 +81,8 @@ export function ConfirmationModal({
           </Text>
           <button
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+            disabled={isSubmitting}
+            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Close modal"
           >
             <X size={20} />
@@ -108,7 +115,8 @@ export function ConfirmationModal({
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     onClick={() => setDecision('approve')}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                    disabled={isSubmitting}
+                    className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                       decision === 'approve'
                         ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
                         : 'border-gray-200 dark:border-gray-700 hover:border-green-200 dark:hover:border-green-800'
@@ -119,7 +127,8 @@ export function ConfirmationModal({
                   </button>
                   <button
                     onClick={() => setDecision('reject')}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                    disabled={isSubmitting}
+                    className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                       decision === 'reject'
                         ? 'border-red-500 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
                         : 'border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800'
@@ -178,6 +187,7 @@ export function ConfirmationModal({
                   id="modal-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
+                  disabled={isSubmitting}
                   placeholder={
                     decision === 'reject' ? 'Reason for rejection is required...' : 'Add optional comments for the owner...'
                   }
@@ -196,13 +206,14 @@ export function ConfirmationModal({
         <div className="px-6 py-4 border-t bg-gray-50 dark:bg-gray-900/50 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            disabled={isSubmitting}
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             onClick={simpleConfirm ? () => onConfirm('approve', '') : handleConfirm}
-            disabled={simpleConfirm ? false : isConfirmDisabled}
+            disabled={simpleConfirm ? isSubmitting : isConfirmDisabled || isSubmitting}
             className={`px-6 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${
               simpleConfirm
                 ? 'bg-red-600 hover:bg-red-700 shadow-red-200 dark:shadow-none'
@@ -213,7 +224,11 @@ export function ConfirmationModal({
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
           >
-            {simpleConfirm ? (simpleConfirm.confirmLabel || 'Confirm') : `Confirm ${decision ? (decision.charAt(0).toUpperCase() + decision.slice(1)) : ''}`}
+            {isSubmitting
+              ? 'Submitting…'
+              : simpleConfirm
+              ? (simpleConfirm.confirmLabel || 'Confirm')
+              : `Confirm ${decision ? (decision.charAt(0).toUpperCase() + decision.slice(1)) : ''}`}
           </button>
         </div>
       </Modal>

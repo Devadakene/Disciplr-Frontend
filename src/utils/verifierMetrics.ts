@@ -26,7 +26,7 @@ export function computeVerifierMetrics(
   for (const task of safePending) {
     const remaining = daysRemaining(task.deadline, now);
     if (remaining <= 0) overdueCount++;
-    if (remaining <= CRITICAL_DAYS_THRESHOLD) criticalCount++;
+    else if (remaining <= CRITICAL_DAYS_THRESHOLD) criticalCount++;
   }
 
   let approved = 0;

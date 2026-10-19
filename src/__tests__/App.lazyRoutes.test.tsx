@@ -1,5 +1,4 @@
 ﻿import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
 
 vi.mock('../pages/Analytics', () => ({ default: () => <div>Analytics</div> }));
 vi.mock('../pages/Notification', () => ({ default: () => <div>Notification</div> }));

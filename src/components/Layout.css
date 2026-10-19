@@ -26,7 +26,7 @@
 }
 
 /* ─── Nav ─────────────────────────────────────────────────────────────────── */
-.header-nav {
+.desktop-nav {
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
@@ -35,8 +35,8 @@
 
 /* ─── Touch-target baseline for all interactive header elements ──────────── */
 .header-link,
-.header-nav a,
-.header-nav button {
+.desktop-nav a,
+.desktop-nav button {
   min-height: var(--touch-target);   /* 44 px */
   min-width: var(--touch-target);    /* 44 px */
   display: inline-flex;
@@ -50,8 +50,8 @@
 }
 
 .header-link:focus-visible,
-.header-nav a:focus-visible,
-.header-nav button:focus-visible,
+.desktop-nav a:focus-visible,
+.desktop-nav button:focus-visible,
 .theme-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -94,7 +94,7 @@
   justify-content: center;
   cursor: pointer;
   color: var(--text);
-  transition: background-color var(--duration-normal) var(--ease-in-out), border-color var(--duration-normal) var(--ease-in-out);
+  transition: background-color var(--duration-normal, 200ms) var(--ease-in-out, cubic-bezier(0.4, 0, 0.2, 1)), border-color var(--duration-normal, 200ms) var(--ease-in-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .theme-toggle:hover {
@@ -118,14 +118,21 @@
   white-space: nowrap;
 }
 
-/* ─── Transactions link (hide label on very small screens) ───────────────── */
+/* ─── Transactions link (icon on small screens, label on wider) ──────────── */
 .header-transactions-label {
   display: none;
+}
+
+.header-transactions-icon {
+  display: inline;
 }
 
 @media (min-width: 400px) {
   .header-transactions-label {
     display: inline;
+  }
+  .header-transactions-icon {
+    display: none;
   }
 }
 
@@ -143,7 +150,7 @@
     gap: var(--spacing-6);
   }
 
-  .header-nav {
+  .desktop-nav {
     gap: var(--spacing-4);
   }
 }
@@ -214,7 +221,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-4);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-level-5);
   border-right: 1px solid var(--border);
   animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

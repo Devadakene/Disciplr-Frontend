@@ -4,7 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -28,6 +28,20 @@ type CommandItem = {
 };
 
 const QUICK_ACTIONS: CommandItem[] = [
+  {
+    id: "action-dashboard",
+    label: "Dashboard",
+    description: "View vault summary and stats",
+    to: "/dashboard",
+    kind: "action",
+  },
+  {
+    id: "action-vaults",
+    label: "Vaults",
+    description: "Browse all vaults",
+    to: "/vaults",
+    kind: "action",
+  },
   {
     id: "action-create-vault",
     label: "Create Vault",
@@ -153,7 +167,7 @@ export default function CommandPalette({
     [close, navigate],
   );
 
-  const handleKeyDown = (event: KeyboardEvent) => {
+  const handleKeyDown = (event: ReactKeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
       close();
@@ -235,7 +249,7 @@ export default function CommandPalette({
                 borderRadius: "var(--radius)",
                 border: "1px solid var(--border)",
                 background: "var(--surface)",
-                boxShadow: "var(--shadow-lg)",
+                boxShadow: "var(--shadow-level-5)",
                 transform: "translateY(0)",
                 transition: prefersReducedMotion
                   ? "none"
@@ -282,6 +296,8 @@ export default function CommandPalette({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Type a vault name, id, or action"
                 aria-controls="command-palette-results"
+                aria-autocomplete="list"
+                aria-expanded="true"
                 aria-activedescendant={
                   items[activeIndex]
                     ? `command-palette-option-${activeIndex}`
