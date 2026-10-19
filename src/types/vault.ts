@@ -46,6 +46,7 @@ export interface Milestone {
   criteria: string;
   status: MilestoneStatus;
   validatedAt?: string;
+  dueDate?: string;
   evidenceUrl?: string;
 }
 

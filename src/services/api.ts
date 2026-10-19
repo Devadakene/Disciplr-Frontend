@@ -19,7 +19,7 @@ export interface ApiVault {
   milestones: ApiMilestone[]; activity?: ApiActivity[];
 }
 
-interface ApiActivity { id: string; type: string; vaultId: string; amount: string; status: string; hash: string; memo: string; createdAt: string }
+export interface ApiActivity { id: string; type: string; vaultId: string; amount: string; status: string; hash: string; memo: string; createdAt: string }
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -61,6 +61,7 @@ export function toVault(v: ApiVault): Vault {
     description: `${Number(m.amount).toLocaleString()} USDC, due ${new Date(m.dueDate).toLocaleDateString()}`,
     criteria: m.title,
     status: m.status === "completed" ? "validated" : m.status === "failed" ? "failed" : "pending",
+    dueDate: m.dueDate,
     ...(m.status === "completed" ? { validatedAt: v.updatedAt || v.createdAt } : {}),
   }));
   return {
@@ -81,7 +82,21 @@ export function toVault(v: ApiVault): Vault {
   };
 }
 
-export const apiListVaults = async (): Promise<Vault[]> => (await request<ApiVault[]>("/vaults")).map(toVault);
+export interface VaultFilter { creator?: string; status?: string }
+
+/** Builds `?creator=..&status=..` with every value URI-encoded; empty when no filter is set. */
+export function buildVaultQuery(filter?: VaultFilter): string {
+  const parts: string[] = [];
+  if (filter?.creator) parts.push(`creator=${encodeURIComponent(filter.creator)}`);
+  if (filter?.status) parts.push(`status=${encodeURIComponent(filter.status)}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
+export const apiListVaults = async (filter?: VaultFilter): Promise<Vault[]> =>
+  (await request<ApiVault[]>(`/vaults${buildVaultQuery(filter)}`)).map(toVault);
+
+/** Raw `/transactions` feed (all vaults); callers filter to the vaults they own. */
+export const apiListTransactions = (): Promise<ApiActivity[]> => request<ApiActivity[]>("/transactions");
 
 export async function apiGetVault(id: string): Promise<Vault | undefined> {
   try {
@@ -172,9 +187,11 @@ export async function apiListActivity(): Promise<VaultActivityRecord[]> {
   });
 }
 
-export async function apiStats(): Promise<{
+export interface ApiStats {
   totalVaults: number; active: number; completed: number; failed: number;
   totalLocked: number; totalReleased: number; totalRedirected: number; successRate: number | null;
-}> {
-  return request("/stats");
+}
+
+export async function apiStats(creator?: string): Promise<ApiStats> {
+  return request(`/stats${buildVaultQuery({ creator })}`);
 }

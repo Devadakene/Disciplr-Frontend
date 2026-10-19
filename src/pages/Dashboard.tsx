@@ -26,7 +26,19 @@ import { validateVaultPreview, sanitizeActivity } from "../utils/dashboardValida
 // Seed data lives in src/fixtures/dashboard.ts. VAULTS are loaded async from
 // vaultService (see Dashboard component below).
 import { ACTIVITY, DEADLINES, CHART_DATA } from "../fixtures/dashboard";
-import { listVaults } from "../services/vaultService";
+import {
+  listVaults,
+  getStats,
+  listTransactionsForVaults,
+} from "../services/vaultService";
+import { isApiEnabled, type ApiStats } from "../services/api";
+import { useWallet } from "../context/WalletContext";
+import {
+  mergeUserVaults,
+  deriveActivity,
+  deriveDeadlines,
+  sortActiveFirst,
+} from "../utils/dashboardDerive";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -356,98 +368,150 @@ function AtRiskSection({ vaults }: { vaults: VaultPreview[] }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-export default function Dashboard({
-  activity = ACTIVITY,
-  deadlines = DEADLINES,
-}: {
-  activity?: Activity[];
-  deadlines?: Deadline[];
-} = {}) {
+export default function Dashboard() {
+  const { address, connect } = useWallet();
   const [vaults, setVaults] = useState<VaultPreview[]>([]);
   const [fullVaults, setFullVaults] = useState<AcceptedVault[]>([]);
-  const [rejectedCount, setRejectedCount] = useState(0);
+  const [activity, setActivity] = useState<Activity[]>([]);
+  const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [stats, setStats] = useState<ApiStats | null>(null);
+  const rejectedCount: number = 0;
+  // `loadedFor` records which wallet the data on screen belongs to, so data for
+  // a previous wallet is never rendered after a switch (see isCurrent below).
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [vaultStatus, setVaultStatus] = useState<
     "loading" | "empty" | "data" | "error"
   >("loading");
   const [retryCount, setRetryCount] = useState(0);
-  const [requestId, setRequestId] = useState(0);
 
-  // One load per component instance, single-flight. Concurrent callers receive
-  // the in-flight request instead of starting a second one, so a React
-  // StrictMode double-mount (src/main.tsx renders <StrictMode>) or an
-  // overlapping retry can never issue two list requests for one page load, and
-  // cannot apply two responses out of order. The runner is created lazily per
-  // instance so separate Dashboard mounts never share in-flight state.
-  const [vaultLoadRunner] = useState(() =>
-    createSingleFlightRunner(listVaults),
-  );
-
-  // Load vaults asynchronously and ignore results after the component unmounts.
+  // Load the connected wallet's vaults. Each run owns a `cancelled` flag that
+  // its cleanup flips, so a slow response for the previous wallet can never
+  // overwrite the new wallet's data. Concurrent identical requests are
+  // de-duplicated by the service cache.
   useEffect(() => {
+    if (!address) return;
     let cancelled = false;
-    const currentRequest = requestId;
     setVaultStatus("loading");
-    setRejectedCount(0);
+    setLoadedFor(null);
+    setVaults([]);
+    setFullVaults([]);
+    setActivity([]);
+    setDeadlines([]);
+    setStats(null);
 
-    const failWith = (code: VaultLoadFailureCode, received: number) => {
-      logger.error("[dashboard] vault_load_failed", {
-        code,
-        attempt: retryCount + 1,
-        received,
-      });
-      // Drop any previously loaded data: an error must not leave stale totals
-      // on screen next to the failure notice.
-      setFullVaults([]);
-      setVaults([]);
-      setRejectedCount(0);
-      setVaultStatus("error");
-    };
-
-    vaultLoadRunner
-      .run()
-      .then((loaded) => {
-        if (cancelled || currentRequest !== requestId) return;
-        const safePreviews = toSafePreviews(loaded);
-        setFullVaults(loaded);
+    (async () => {
+      // The API has no ?verifier= yet: fetch creator-scoped vaults plus the full
+      // list, then pick out vaults this address verifies client-side.
+      const [created, all, creatorStats] = await Promise.all([
+        listVaults({ creator: address }),
+        listVaults(),
+        getStats({ creator: address }).catch(() => null),
+      ]);
+      const mine = mergeUserVaults(created, all, address);
+      const txs = await listTransactionsForVaults(mine).catch(() => []);
+      return { mine, txs, creatorStats };
+    })()
+      .then(({ mine, txs, creatorStats }) => {
+        if (cancelled) return;
+        const safePreviews = sortActiveFirst(toSafePreviews(mine));
+        setFullVaults(mine as AcceptedVault[]);
         setVaults(safePreviews);
+        setStats(creatorStats);
+        // Fixtures are used for offline mode only.
+        setActivity(isApiEnabled() ? deriveActivity(txs, mine) : ACTIVITY);
+        setDeadlines(isApiEnabled() ? deriveDeadlines(mine) : DEADLINES);
+        setLoadedFor(address);
         setVaultStatus(safePreviews.length === 0 ? "empty" : "data");
       })
       .catch(() => {
-        if (!cancelled && currentRequest === requestId) setVaultStatus("error");
+        if (cancelled) return;
+        logger.error("[dashboard] vault_load_failed", {
+          code: "unavailable" satisfies VaultLoadFailureCode,
+          attempt: retryCount + 1,
+        });
+        setLoadedFor(address);
+        setVaultStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [retryCount, requestId]);
+  }, [address, retryCount]);
 
   const retryVaults = useCallback(() => {
     setRetryCount((c) => c + 1);
-    setRequestId((r) => r + 1);
   }, []);
 
-  // INVARIANT: vault-derived state is surfaced only in the "data" state. Gating
-  // at render time (rather than relying on every failure path remembering to
-  // clear) means the summary cards can never contradict the vault list — e.g.
-  // stale totals above a "Failed to load vaults" message after a failed retry.
-  const shownVaults = vaultStatus === "data" ? vaults : NO_VAULTS;
-  const shownFullVaults = vaultStatus === "data" ? fullVaults : NO_ACCEPTED_VAULTS;
+  // INVARIANT: wallet-derived state is surfaced only in the "data" state AND
+  // only for the wallet it was loaded for. Gating at render time means the
+  // summary cards can never contradict the vault list or show a previous
+  // wallet's data during a switch.
+  const isCurrent = loadedFor === address;
+  const showData = vaultStatus === "data" && isCurrent;
+  const viewStatus = isCurrent ? vaultStatus : "loading";
+  const shownVaults = showData ? vaults : NO_VAULTS;
+  const shownFullVaults = showData ? fullVaults : NO_ACCEPTED_VAULTS;
 
   const computedSummary = useMemo(
     () => dashboardUtils.computeDashboardSummary(shownFullVaults),
     [shownFullVaults],
   );
+  // Totals come from GET /stats?creator= when available. That endpoint covers
+  // creator-owned vaults only, so vaults the user merely verifies are excluded
+  // from the "Total Locked" and "Active Vaults" cards.
   const memoizedSummary = useMemo(
-    () => dashboardUtils.formatSummary(computedSummary),
-    [computedSummary],
+    () =>
+      dashboardUtils.formatSummary({
+        ...computedSummary,
+        ...(showData && stats
+          ? { totalLocked: stats.totalLocked, activeVaults: stats.active }
+          : {}),
+      }),
+    [computedSummary, showData, stats],
   );
-  // `activity` / `deadlines` are caller-supplied; a non-array must degrade to
-  // "nothing to show" rather than throw while spreading it.
   const memoizedActivity = useMemo(
-    () => dashboardUtils.processActivity(sanitizeActivity(activity)),
-    [activity],
+    () =>
+      dashboardUtils.processActivity(sanitizeActivity(showData ? activity : [])),
+    [activity, showData],
   );
-  const safeDeadlines = Array.isArray(deadlines) ? deadlines : [];
+  const safeDeadlines = showData ? deadlines : [];
+
+  if (!address) {
+    return (
+      <div
+        style={{
+          maxWidth: "var(--container-wide)",
+          margin: "0 auto",
+          padding: "0 0 3rem",
+        }}
+      >
+        <Text role="title" as="h1" style={{ margin: "0 0 0.25rem" }}>
+          Dashboard
+        </Text>
+        <div
+          style={{
+            textAlign: "center",
+            padding: "3rem 1rem",
+            color: "var(--muted)",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+          }}
+        >
+          <Text role="body" as="p" style={{ fontWeight: 600 }}>
+            Connect your wallet to see your vaults
+          </Text>
+          <Text role="caption" as="p">
+            Your vaults, activity and deadlines appear here once a wallet is
+            connected.
+          </Text>
+          <button type="button" onClick={() => void connect()}>
+            Connect wallet
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -577,17 +641,17 @@ export default function Dashboard({
             }}
           >
             <SectionHeader
-              title="Active Vaults"
+              title="Your vaults"
               action="View all →"
               to="/vaults"
             />
-            {vaultStatus === "loading" && (
+            {viewStatus === "loading" && (
               <Text role="body" as="p" style={{ color: "var(--muted)" }}>
                 <span role="status">Loading vaults…</span>
               </Text>
             )}
 
-            {vaultStatus === "error" && (
+            {viewStatus === "error" && (
               <div
                 role="alert"
                 style={{
@@ -605,7 +669,7 @@ export default function Dashboard({
               </div>
             )}
 
-            {vaultStatus === "empty" && (
+            {viewStatus === "empty" && (
               <div
                 style={{
                   textAlign: "center",
@@ -642,7 +706,7 @@ export default function Dashboard({
               </div>
             )}
 
-            {vaultStatus === "data" && (
+            {viewStatus === "data" && (
               <div
                 style={{
                   display: "flex",
