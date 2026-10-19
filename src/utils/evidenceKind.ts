@@ -1,3 +1,5 @@
+import { normalizeEvidenceUrl } from './url';
+
 export type EvidenceKind = 'github' | 'figma' | 'ipfs' | 'other';
 
 /**
@@ -21,24 +23,56 @@ export interface EvidenceInfo {
   host: string;
 }
 
+const IPFS_GATEWAY_HOSTS = ['ipfs.io', 'dweb.link'] as const;
+
+export function hostMatches(host: string, domain: string): boolean {
+  const normalizedHost = host.toLowerCase();
+  const normalizedDomain = domain.toLowerCase();
+  if (!normalizedHost || !normalizedDomain) {
+    return false;
+  }
+  return (
+    normalizedHost === normalizedDomain ||
+    normalizedHost.endsWith(`.${normalizedDomain}`)
+  );
+}
+
+function hasPunycodeLabel(host: string): boolean {
+  return host.split('.').some((label) => label.startsWith('xn--'));
+}
+
 export function classifyEvidenceUrl(url: string): EvidenceInfo | null {
+  const normalized = normalizeEvidenceUrl(url);
+  if (!normalized) {
+    return null;
+  }
+
   try {
-    const parsed = new URL(url);
-
-    if (parsed.hostname.includes('github.com')) {
-      return { kind: 'github', host: 'github.com' };
+    const parsed = new URL(normalized);
+    const host = parsed.hostname.toLowerCase();
+    if (!host) {
+      return null;
     }
 
-    if (parsed.hostname.includes('figma.com')) {
-      return { kind: 'figma', host: 'figma.com' };
+    if (hasPunycodeLabel(host)) {
+      return { kind: 'other', host };
     }
 
-    if (parsed.protocol === 'ipfs:' || parsed.hostname.includes('ipfs')) {
-      return { kind: 'ipfs', host: parsed.hostname };
+    if (hostMatches(host, 'github.com')) {
+      return { kind: 'github', host };
     }
 
-    return { kind: 'other', host: parsed.hostname };
+    if (hostMatches(host, 'figma.com')) {
+      return { kind: 'figma', host };
+    }
+
+    if (IPFS_GATEWAY_HOSTS.some((gateway) => hostMatches(host, gateway))) {
+      return { kind: 'ipfs', host };
+    }
+
+    return { kind: 'other', host };
   } catch {
     return null;
   }
 }
+

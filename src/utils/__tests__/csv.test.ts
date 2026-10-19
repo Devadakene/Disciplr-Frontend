@@ -369,4 +369,20 @@ describe('downloadCsv', () => {
       'revokeObjectURL',
     ]);
   });
+
+  it('prepends a UTF-8 BOM to the exported blob', () => {
+    const createElement = vi.fn(() => ({ setAttribute: vi.fn(), style: {}, click: vi.fn() }));
+    vi.stubGlobal('document', { createElement, body: { appendChild: vi.fn(), removeChild: vi.fn() } });
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(), revokeObjectURL: vi.fn() });
+
+    const originalBlob = global.Blob;
+    const blobMock = vi.fn();
+    global.Blob = blobMock as unknown as typeof Blob;
+
+    downloadCsv('a,b,c', 'test.csv');
+
+    expect(blobMock).toHaveBeenCalledWith(['\uFEFFa,b,c'], { type: 'text/csv;charset=utf-8;' });
+
+    global.Blob = originalBlob;
+  });
 });

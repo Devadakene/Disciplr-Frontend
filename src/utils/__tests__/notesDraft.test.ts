@@ -48,4 +48,13 @@ describe('notesDraft storage helpers', () => {
     expect(() => clearNotesDraft('v-101')).not.toThrow();
     expect(readNotesDraft('v-101')).toBe('');
   });
+
+  it('stores drafts under the disciplr: namespaced key to avoid collisions', () => {
+    writeNotesDraft('v-999', 'namespaced content');
+
+    // The raw localStorage key must carry the full disciplr: prefix so it
+    // cannot collide with other apps sharing the same origin.
+    const storedKey = window.localStorage.key(0);
+    expect(storedKey).toBe('disciplr:validation-notes-draft:v-999');
+  });
 });

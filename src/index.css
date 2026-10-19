@@ -1,60 +1,5 @@
 :root {
   --overlay-backdrop: rgba(0, 0, 0, 0.5);
-  /* Light theme (default) */
-  --bg: #f9fafb;
-  --surface: #f3f4f6;
-  --surface-raised: #e5e7eb;
-  --border: #e5e7eb;
-  --text: #111827;
-  --muted: #4b5563;
-  --accent: #00c389;
-  --accent-dim: #00996e;
-  --accent-transparent: rgba(0, 195, 137, 0.1);
-  --hover: #e5e7eb;
-  --danger: #dc2626;
-  --danger-transparent: rgba(220, 38, 38, 0.1);
-  --success: #059669;
-  --success-transparent: rgba(5, 153, 103, 0.1);
-  --warning: #d97706;
-  --warning-transparent: rgba(217, 119, 6, 0.1);
-  --info: #2563eb;
-
-  /* Shadow scale — mirrors design-system/tokens/shadows.json */
-  --shadow-level-1: 0px 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-level-2: 0px 1px 3px rgba(0, 0, 0, 0.1), 0px 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-level-3: 0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-level-4: 0px 10px 15px -3px rgba(0, 0, 0, 0.1), 0px 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-level-5: 0px 20px 25px -5px rgba(0, 0, 0, 0.1), 0px 10px 10px -5px rgba(0, 0, 0, 0.04);
-
-  /* Border radius scale — mirrors design-system/tokens/borders.json */
-  --radius-none: 0px; /* sharp corners */
-  --radius-sm: 4px; /* inputs, tags */
-  --radius-md: 8px; /* buttons, cards */
-  --radius-lg: 12px; /* large cards, dropdowns */
-  --radius-xl: 16px; /* modals, hero cards */
-  --radius-full: 9999px; /* pills, avatars */
-  /* Legacy alias — kept for backward compatibility, resolves to md */
-  --radius: var(--radius-md);
-
-  /* Border width scale — mirrors design-system/tokens/borders.json */
-  --border-width-0: 0px;
-  --border-width-1: 1px; /* default */
-  --border-width-2: 2px; /* emphasis */
-  --border-width-4: 4px; /* strong emphasis */
-
-  /* Focus ring — mirrors design-system/tokens/borders.json border.focusRing */
-  --focus-ring-width: 2px;
-  --focus-ring-offset: 2px;
-  --focus-ring-color: #1e40af;
-
-  /* Semantic border colors — light-mode defaults; overridden in dark theme below */
-  --border-default: #e5e7eb;
-  --border-subtle: #f3f4f6;
-  --border-emphasis: #d1d5db;
-  --border-interactive: #1e40af;
-  --border-error: #dc2626;
-  --border-success: #059669;
-
   --font-sans: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif";
 
   /* Spacing tokens */
@@ -119,19 +64,6 @@
   --font-family-mono:
     "JetBrains Mono", "SF Mono", Monaco, "Cascadia Code", monospace;
 
-  /* Z-index layering scale — mirrors design-system/tokens/z-index.json */
-  --z-index-base: 0;
-  --z-index-header: 100;
-  --z-index-tooltip: 150;
-  --z-index-drawer: 200;
-  --z-index-modal: 300;
-  --z-index-toast: 400;
-
-  /* Opacity scale — mirrors design-system/tokens/opacity.json */
-  --opacity-disabled: 0.5;
-  --opacity-backdrop: 0.5;
-  --opacity-hover: 0.08;
-  --opacity-muted: 0.72;
 }
 
 /* Responsive breakpoints - update CSS variables */
@@ -253,110 +185,6 @@
   font-family: var(--font-family-mono);
 }
 
-/* Dark theme - auto if OS prefers dark */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111827;
-    --surface: #1f2937;
-    --surface-raised: #374151;
-    --border: #4b5563;
-    --text: #f9fafb;
-    --muted: #9ca3af;
-    --accent: #14b8a6;
-    --accent-dim: #0d9488;
-    --accent-transparent: rgba(20, 184, 166, 0.1);
-    --hover: #374151;
-    --danger: #ef4444;
-    --danger-transparent: rgba(239, 68, 68, 0.1);
-    --success: #10b981;
-    --success-transparent: rgba(16, 185, 129, 0.1);
-    --warning: #f59e0b;
-    --warning-transparent: rgba(245, 158, 11, 0.1);
-    --info: #60a5fa;
-
-    /* Semantic border colors — dark mode (mirrors borders.json border.color.dark) */
-    --border-default: #4b5563;
-    --border-subtle: #1f2937;
-    --border-emphasis: #374151;
-    --border-interactive: #3b82f6;
-    --border-error: #ef4444;
-    --border-success: #10b981;
-    --focus-ring-color: #3b82f6;
-
-    /* Shadow scale — dark mode (mirrors shadows.json dark values) */
-    --shadow-level-1: 0px 1px 3px rgba(0, 0, 0, 0.5);
-    --shadow-level-2: 0px 1px 4px rgba(0, 0, 0, 0.5), 0px 1px 3px rgba(0, 0, 0, 0.3);
-    --shadow-level-3: 0px 4px 8px -1px rgba(0, 0, 0, 0.5), 0px 2px 5px -1px rgba(0, 0, 0, 0.3);
-    --shadow-level-4: 0px 10px 18px -3px rgba(0, 0, 0, 0.5), 0px 4px 8px -2px rgba(0, 0, 0, 0.3);
-    --shadow-level-5: 0px 20px 30px -5px rgba(0, 0, 0, 0.5), 0px 10px 12px -5px rgba(0, 0, 0, 0.3);
-  }
-}
-
-/* Manual dark theme override (if user selects dark) */
-:root[data-theme="dark"] {
-  --bg: #111827;
-  --surface: #1f2937;
-  --surface-raised: #374151;
-  --border: #4b5563;
-  --text: #f9fafb;
-  --muted: #9ca3af;
-  --accent: #14b8a6;
-  --accent-dim: #0d9488;
-  --accent-transparent: rgba(20, 184, 166, 0.1);
-  --hover: #374151;
-  --danger: #ef4444;
-  --danger-transparent: rgba(239, 68, 68, 0.1);
-  --success: #10b981;
-  --success-transparent: rgba(16, 185, 129, 0.1);
-  --warning: #f59e0b;
-  --warning-transparent: rgba(245, 158, 11, 0.1);
-  --info: #60a5fa;
-
-  /* Semantic border colors — dark mode (mirrors borders.json border.color.dark) */
-  --border-default: #4b5563;
-  --border-subtle: #1f2937;
-  --border-emphasis: #374151;
-  --border-interactive: #3b82f6;
-  --border-error: #ef4444;
-  --border-success: #10b981;
-  --focus-ring-color: #3b82f6;
-
-  /* Shadow scale — dark mode (mirrors shadows.json dark values) */
-  --shadow-level-1: 0px 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-level-2: 0px 1px 4px rgba(0, 0, 0, 0.5), 0px 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-level-3: 0px 4px 8px -1px rgba(0, 0, 0, 0.5), 0px 2px 5px -1px rgba(0, 0, 0, 0.3);
-  --shadow-level-4: 0px 10px 18px -3px rgba(0, 0, 0, 0.5), 0px 4px 8px -2px rgba(0, 0, 0, 0.3);
-  --shadow-level-5: 0px 20px 30px -5px rgba(0, 0, 0, 0.5), 0px 10px 12px -5px rgba(0, 0, 0, 0.3);
-}
-
-/* Manual light theme override (if user selects light) */
-:root[data-theme="light"] {
-  --bg: #f9fafb;
-  --surface: #f3f4f6;
-  --surface-raised: #e5e7eb;
-  --border: #e5e7eb;
-  --text: #111827;
-  --muted: #4b5563;
-  --accent: #0a7668;
-  --accent-dim: #095c4f;
-  --accent-transparent: rgba(10, 118, 104, 0.1);
-  --hover: #e5e7eb;
-  --danger: #dc2626;
-  --danger-transparent: rgba(220, 38, 38, 0.1);
-  --success: #059669;
-  --success-transparent: rgba(5, 153, 103, 0.1);
-  --warning: #d97706;
-  --warning-transparent: rgba(217, 119, 6, 0.1);
-  --info: #2563eb;
-
-  /* Semantic border colors — light mode (mirrors borders.json border.color.light) */
-  --border-default: #e5e7eb;
-  --border-subtle: #f3f4f6;
-  --border-emphasis: #d1d5db;
-  --border-interactive: #1e40af;
-  --border-error: #dc2626;
-  --border-success: #059669;
-}
 
 /* ── Focus ring — keyboard-only via :focus-visible ─────────────────────────
    Applies the focusRing tokens from borders.json. Mouse/touch clicks do NOT
@@ -408,6 +236,41 @@ a:hover {
   text-decoration: underline;
 }
 
+.notfound-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-6);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: var(--font-size-body);
+  text-decoration: none;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+
+.notfound-action--primary {
+  background-color: var(--accent);
+  color: white;
+  border: none;
+}
+
+.notfound-action--primary:hover,
+.notfound-action--primary:focus-visible {
+  background-color: var(--accent-dim);
+}
+
+.notfound-action--secondary {
+  background-color: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.notfound-action--secondary:hover,
+.notfound-action--secondary:focus-visible {
+  background-color: var(--hover);
+}
+
 /* ── prefers-reduced-motion ─────────────────────────────────────────────────
    Collapse all durations to near-zero so CSS transitions still fire
    (avoids layout jumps) but are imperceptible. JS/framer-motion components
@@ -429,5 +292,16 @@ a:hover {
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Dashboard: two columns on desktop, single column on small screens */
+.dashboard-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+}
+@media (max-width: 860px) {
+  .dashboard-main-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

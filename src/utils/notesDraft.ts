@@ -1,7 +1,12 @@
-const NOTES_DRAFT_PREFIX = 'validation-notes-draft:';
+const NOTES_DRAFT_PREFIX = 'disciplr:validation-notes-draft:';
 
 function draftKey(taskId: string): string {
   return `${NOTES_DRAFT_PREFIX}${taskId}`;
+}
+
+/** Public accessor for the localStorage key a given task's notes draft is stored under. */
+export function getNotesDraftKey(taskId: string): string {
+  return draftKey(taskId);
 }
 
 function storageAvailable(): Storage | null {

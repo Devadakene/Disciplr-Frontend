@@ -48,7 +48,13 @@ describe('logger – development mode', () => {
 
 describe('logger – production mode', () => {
   beforeEach(() => {
-    vi.stubEnv('MODE', 'production');
+    // import.meta.env.MODE is inlined by Vite's transform pipeline and does
+    // not reliably reflect vi.stubEnv('MODE', ...) once a module has already
+    // been transformed under 'test' mode earlier in the run (a known
+    // Vite/Vitest limitation). The logger's Node fallback path checks
+    // process.env.NODE_ENV, which vi.stubEnv patches on a genuinely live,
+    // mutable object, so stub that instead to reliably exercise prod mode.
+    vi.stubEnv('NODE_ENV', 'production');
     vi.spyOn(console, 'debug').mockImplementation(() => {});
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});

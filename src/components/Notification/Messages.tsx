@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { getNotificationTypeMapping } from "./notificationType";
+import { formatRelativeTime } from "../../utils/relativeTime";
+
+const MAX_PREVIEW_LENGTH = 30;
 
 interface MessageProps {
   id: string;
   type: string;
   title: string;
   message: string;
-  timeAgo: string;
+  timestamp: string;
   read: boolean;
   isFullPage: boolean;
   setRead: (id: string) => void;
+  onDismiss: (id: string) => void;
 }
 
 export default function Message({
@@ -17,13 +21,42 @@ export default function Message({
   type,
   title,
   message,
-  timeAgo,
+  timestamp,
   read,
   isFullPage,
   setRead,
+  onDismiss,
 }: MessageProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const { icon: Icon, color, label } = getNotificationTypeMapping(type);
+  const mapping = getNotificationTypeMapping(type);
+  const Icon = mapping?.icon;
+  const color = mapping?.color ?? "#667589";
+  const label = mapping?.label ?? "Notification";
+  const safeTimestamp =
+    typeof timestamp === "string" && timestamp.trim().length > 0
+      ? timestamp
+      : "";
+  const timeAgo = safeTimestamp ? formatRelativeTime(safeTimestamp) : "";
+  const safeTitle =
+    typeof title === "string" && title.trim().length > 0
+      ? title
+      : "Untitled notification";
+  const safeMessage = typeof message === "string" ? message : "";
+  const previewMessage =
+    safeMessage.length > MAX_PREVIEW_LENGTH
+      ? `${safeMessage.slice(0, MAX_PREVIEW_LENGTH)}...`
+      : safeMessage;
+
+  const handleOpen = () => {
+    if (typeof id !== "string" || id.length === 0) {
+      return;
+    }
+    setIsOpen(true);
+    setRead(id);
+  };
+
+  const safeId = typeof id === "string" ? id : "";
+  const safeRead = Boolean(read);
 
   return (
     <>
@@ -38,23 +71,29 @@ export default function Message({
           <div className="w-full">
             <div className="flex justify-between items-center">
               <div
-                onClick={() => {
-                  setIsOpen(true);
-                  setRead(id);
-                }}
+                onClick={handleOpen}
                 className="w-full"
               >
                 <h2
-                  className={`${read ? "text-[#667589]" : isFullPage ? "text-white" : "text-black"} font-bold`}
+                  className={`${
+                    safeRead
+                      ? "text-[#667589]"
+                      : "text-black"
+                  } font-bold`}
                 >
-                  {title}
+                  {safeTitle}
                 </h2>
                 <p className="text-sm text-[#667589]">
-                  {message.slice(0, 30)} ...
+                  {previewMessage}
                 </p>
               </div>
+
               {isFullPage && (
-                <button className="bg-[#00c389] px-2 py-1 rounded-md">
+                <button
+                  type="button"
+                  onClick={() => onDismiss(id)}
+                  className="bg-[#00c389] px-2 py-1 rounded-md"
+                >
                   Delete
                 </button>
               )}
@@ -62,11 +101,19 @@ export default function Message({
 
             <div className="flex justify-between w-full">
               <div
-                className={`${!read ? "bg-[#00c389]" : ""} rounded-md mb-1 px-2`}
+                className={`${
+                  !safeRead ? "bg-[#00c389]" : ""
+                } rounded-md mb-1 px-2`}
               >
-                <p className="font-bold">{read ? "" : "New"}</p>
+                <p className="font-bold">{safeRead ? "" : "New"}</p>
               </div>
-              <p className="text-sm text-[#667589]">{timeAgo}</p>
+
+              <p
+                className="text-sm text-[#667589]"
+                data-testid="message-time-ago"
+              >
+                {timeAgo}
+              </p>
             </div>
           </div>
         </div>
@@ -81,16 +128,19 @@ export default function Message({
           }`}
         >
           <div className="flex justify-end p-4">
-            <div
+            <button
+              type="button"
               onClick={() => setIsOpen(false)}
-              className="bg-red-500 rounded-full text-white w-7 h-7 flex items-center justify-center cursor-default"
+              aria-label="Close message"
+              className="bg-red-500 rounded-full text-white w-7 h-7 flex items-center justify-center hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
             >
-              <h1>X</h1>
-            </div>
+              <span aria-hidden="true">X</span>
+            </button>
           </div>
+
           <div className="px-2">
-            <h2 className="text-black font-bold text-xl">{title}</h2>
-            <p className="mt-5 text-[#667589]">{message}</p>
+            <h2 className="text-black font-bold text-xl">{safeTitle}</h2>
+            <p className="mt-5 text-[#667589]">{safeMessage}</p>
           </div>
         </div>
       )}

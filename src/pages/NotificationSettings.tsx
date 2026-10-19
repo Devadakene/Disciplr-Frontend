@@ -1,33 +1,18 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { vaults } from "@/components/Notification/exampleNotification/example";
 import { Text } from "@/components/Text";
-import { Switch } from "@/components/Switch";
+import { Switch } from "../components/Switch";
 import { useNotificationPreferences } from "../Zustand/Store";
+import { isValidQuietTime, isValidQuietHoursRange, isQuietHoursActive } from "../utils/quietHours";
 
 
-type SettingsToggleProps = {
-  checked?: boolean;
-  label: string;
-  onChange?: (checked: boolean) => void;
-};
+// Allowed notification frequency values. Anything outside this set is rejected
+// so a stale or tampered persisted value cannot silently change behavior.
+const ALLOWED_FREQUENCIES = ["1", "2", "3", "4"] as const;
+type Frequency = (typeof ALLOWED_FREQUENCIES)[number];
 
-function SettingsToggle({ checked, label, onChange }: SettingsToggleProps) {
-  return (
-    <label className="relative inline-flex items-center cursor-pointer">
-      <input
-        type="checkbox"
-        className="sr-only peer"
-        checked={checked}
-        aria-label={label}
-        onChange={(event) => onChange?.(event.target.checked)}
-      />
-      <span
-        className="notification-settings-toggle peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[var(--accent-transparent)]"
-        aria-hidden="true"
-      />
-    </label>
-  );
-}
+const isAllowedFrequency = (value: unknown): value is Frequency =>
+  typeof value === "string" && (ALLOWED_FREQUENCIES as readonly string[]).includes(value);
 
 export default function NotificationSettings() {
   const {
@@ -42,24 +27,56 @@ export default function NotificationSettings() {
     reset,
   } = useNotificationPreferences();
 
+  // Authorization/validation invariant: the persisted frequency must be one of
+  // the known options. If it is not (stale state, tampering, partial write),
+  // fall back to a safe default rather than rendering an invalid selection.
+  const safeFrequency: Frequency = isAllowedFrequency(frequency) ? frequency : "1";
+  const frequencyIsValid = isAllowedFrequency(frequency);
+
   // Determine whether the current time falls within the quiet hour window.
   // quietHours is a single "HH:MM" boundary. Quiet is considered active if
   // the current hour:minute matches or is past the stored quiet-hours value.
-  const [quietHoursActive] = useState<boolean>(() => {
-    if (!quietHours) return false;
-    const now = new Date();
-    const [qh, qm] = quietHours.split(":").map(Number);
-    return now.getHours() > qh || (now.getHours() === qh && now.getMinutes() >= qm);
-  });
+  const [quietStartValue, setQuietStartValue] = useState<string>(isValidQuietTime(quietHours) ? quietHours : "22:00");
+  const [quietEndValue, setQuietEndValue] = useState<string>("07:00");
+  const quietRangeIsValid = isValidQuietHoursRange(quietStartValue, quietEndValue);
+  const quietHoursValid = isValidQuietTime(quietHours);
+  const quietHoursActive = useMemo(
+    () => isQuietHoursActive(new Date(), quietStartValue, quietEndValue),
+    [quietStartValue, quietEndValue]
+  );
+
+  function updateQuietRange(start: string, end: string) {
+    setQuietStartValue(start);
+    setQuietEndValue(end);
+    if (isValidQuietHoursRange(start, end)) {
+      setQuietHours(start);
+    }
+  }
 
   // Per-vault notification toggles (keyed by vault name)
   const [vaultToggles, setVaultToggles] = useState<Record<string, boolean>>(
     () => Object.fromEntries(vaults.map((v) => [v.name, false]))
   );
 
-  function handleVaultToggle(name: string, checked: boolean) {
-    setVaultToggles((prev) => ({ ...prev, [name]: checked }));
-  }
+  // Only allow toggles for vaults that are actually rendered. This prevents
+  // arbitrary keys from being injected into state via crafted events.
+  const knownVaultNames = useMemo(() => new Set(vaults.map((v) => v.name)), []);
+
+  const handleVaultToggle = useCallback(
+    (name: string, checked: boolean) => {
+      if (!knownVaultNames.has(name)) return;
+      setVaultToggles((prev) => ({ ...prev, [name]: checked }));
+    },
+    [knownVaultNames]
+  );
+
+  const handleFrequencyChange = useCallback(
+    (value: string) => {
+      if (!isAllowedFrequency(value)) return;
+      setFrequency(value);
+    },
+    [setFrequency]
+  );
 
   return (
     <>
@@ -101,14 +118,14 @@ export default function NotificationSettings() {
             </label>
             <select
               className="w-[200px] notification-settings-field"
-              value={frequency}
-              onChange={(e) => {
-                setFrequency(e.target.value);
-              }}
+              value={safeFrequency}
+              onChange={(e) => handleFrequencyChange(e.target.value)}
               name="notification-frequency"
               id="notification-frequency"
+              aria-invalid={!frequencyIsValid}
             >
-              <option value="1">Occurance</option>
+              <option value="" disabled hidden>Not set</option>
+              <option value="1">Occurrence</option>
               <option value="2">Daily</option>
               <option value="3">Weekly</option>
               <option value="4">Never</option>
@@ -133,14 +150,26 @@ export default function NotificationSettings() {
               </span>
             </div>
             <div className="mt-3">
-              <label className="flex flex-col gap-1" htmlFor="quiet-hours">
+              <label className="flex flex-col gap-1" htmlFor="quiet-start">
                 <input
                   className="notification-settings-field"
                   type="time"
-                  id="quiet-hours"
-                  aria-label="Quiet Hours"
-                  value={quietHours}
-                  onChange={(e) => setQuietHours(e.target.value)}
+                  id="quiet-start"
+                  aria-label="Quiet Hours Start"
+                  aria-invalid={!quietRangeIsValid}
+                  value={quietStartValue}
+                  onChange={(e) => updateQuietRange(e.target.value, quietEndValue)}
+                />
+              </label>
+              <label className="flex flex-col gap-1 mt-2" htmlFor="quiet-end">
+                <input
+                  className="notification-settings-field"
+                  type="time"
+                  id="quiet-end"
+                  aria-label="Quiet Hours End"
+                  aria-invalid={!quietRangeIsValid}
+                  value={quietEndValue}
+                  onChange={(e) => updateQuietRange(quietStartValue, e.target.value)}
                 />
               </label>
             </div>
@@ -199,18 +228,6 @@ export default function NotificationSettings() {
           border-color: var(--accent);
           outline: 2px solid var(--accent-transparent);
           outline-offset: 2px;
-        }
-
-        .notification-settings-reset {
-          background: var(--surface-raised);
-          color: var(--text);
-          border: 1px solid var(--border);
-          border-radius: var(--radius);
-          cursor: pointer;
-        }
-
-        .notification-settings-reset:hover {
-          background: var(--border);
         }
 
         .notification-settings-reset {

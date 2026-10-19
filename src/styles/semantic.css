@@ -1,0 +1,144 @@
+/*
+ * Semantic alias layer: maps the app's variable names (--bg, --surface, --text, …)
+ * onto the generated design-system tokens (tokens.generated.css) so components
+ * do not change. Imported after tokens.generated.css and before index.css.
+ *
+ * DELIBERATE OVERRIDE (accent): the design-system brand primary (--color-primary,
+ * #1E40AF blue) is used for focus rings / interactive borders, while the app's
+ * primary *action* colour (--accent) stays green/teal. These per-theme accent
+ * values have no token yet and are kept here, intentionally, until design adds
+ * an `accent` token. --warning-transparent / --success-transparent etc. are
+ * derived tints of their tokens.
+ */
+
+:root {
+  /* Surfaces & text (light) */
+  --bg: var(--color-neutral-50);
+  --surface: var(--color-neutral-100);
+  --surface-raised: var(--color-neutral-200);
+  --border: var(--color-neutral-200);
+  --text: var(--color-neutral-900);
+  --muted: var(--color-neutral-600);
+  --hover: var(--color-neutral-200);
+
+  /* Status */
+  --danger: var(--color-error);
+  --danger-transparent: rgba(220, 38, 38, 0.1);
+  --success: var(--color-success);
+  --success-transparent: rgba(5, 153, 103, 0.1);
+  --warning: var(--color-warning);
+  --warning-transparent: rgba(217, 119, 6, 0.1);
+  --info: var(--color-info);
+
+  /* Accent: deliberate override, see header */
+  --accent: #00c389;
+  --accent-dim: #00996e;
+  --accent-transparent: rgba(0, 195, 137, 0.1);
+
+  /* Semantic borders (light) */
+  --border-default: var(--border-color-light-default);
+  --border-subtle: var(--border-color-light-subtle);
+  --border-emphasis: var(--border-color-light-emphasis);
+  --border-interactive: var(--border-color-light-interactive);
+  --border-error: var(--border-color-light-error);
+  --border-success: var(--border-color-light-success);
+
+  /* Focus ring (colour flips in the generated dark block) */
+  --focus-ring-width: var(--border-focusRing-width);
+  --focus-ring-offset: var(--border-focusRing-offset);
+  --focus-ring-color: var(--border-focusRing-color);
+
+  /* Radius */
+  --radius-none: var(--border-radius-none);
+  --radius-sm: var(--border-radius-sm);
+  --radius-md: var(--border-radius-md);
+  --radius-lg: var(--border-radius-lg);
+  --radius-xl: var(--border-radius-xl);
+  --radius-full: var(--border-radius-full);
+  --radius: var(--radius-md); /* legacy alias */
+
+  /* Z-index */
+  --z-index-base: var(--zIndex-base);
+  --z-index-header: var(--zIndex-header);
+  --z-index-tooltip: var(--zIndex-tooltip);
+  --z-index-drawer: var(--zIndex-drawer);
+  --z-index-modal: var(--zIndex-modal);
+  --z-index-toast: var(--zIndex-toast);
+
+  /* Motion */
+  --duration-micro: var(--motion-duration-micro);
+  --duration-fast: var(--motion-duration-fast);
+  --duration-normal: var(--motion-duration-normal);
+  --duration-moderate: var(--motion-duration-moderate);
+  --duration-slow: var(--motion-duration-slow);
+  --duration-slower: var(--motion-duration-slower);
+  --ease-in-out: cubic-bezier(var(--motion-easing-ease-in-out));
+  --ease-out: cubic-bezier(var(--motion-easing-ease-out));
+  --ease-in: cubic-bezier(var(--motion-easing-ease-in));
+  --ease-bounce: cubic-bezier(var(--motion-easing-bounce));
+  --ease-smooth: cubic-bezier(var(--motion-easing-smooth));
+
+  /* Names previously referenced by components but never defined */
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --error: var(--danger);
+  --surface-inverse: var(--color-neutral-800);
+  --text-inverse: var(--color-neutral-50);
+  --font-mono: var(--typography-fontFamily-monospace);
+  --font-family-base: var(--typography-fontFamily-primary);}
+
+/* Dark theme: OS preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: var(--color-neutral-900);
+    --surface: var(--color-neutral-800);
+    --surface-raised: var(--color-neutral-700);
+    --border: var(--color-neutral-600);
+    --text: var(--color-neutral-50);
+    /* #D1D5DB on #111827 ≈ 12:1 — AA for normal text at caption sizes (12–14px) */
+    --muted: var(--color-neutral-300);
+    --hover: var(--color-neutral-700);
+    --danger-transparent: rgba(239, 68, 68, 0.1);
+    --success-transparent: rgba(16, 185, 129, 0.1);
+    --warning-transparent: rgba(245, 158, 11, 0.1);
+    --accent: #14b8a6;
+    --accent-dim: #0d9488;
+    --accent-transparent: rgba(20, 184, 166, 0.1);
+    --border-default: var(--border-color-dark-default);
+    --border-subtle: var(--border-color-dark-subtle);
+    --border-emphasis: var(--border-color-dark-emphasis);
+    --border-interactive: var(--border-color-dark-interactive);
+    --border-error: var(--border-color-dark-error);
+    --border-success: var(--border-color-dark-success);
+  }
+}
+
+/* Dark theme: manual override */
+:root[data-theme="dark"] {
+  --bg: var(--color-neutral-900);
+  --surface: var(--color-neutral-800);
+  --surface-raised: var(--color-neutral-700);
+  --border: var(--color-neutral-600);
+  --text: var(--color-neutral-50);
+  --muted: var(--color-neutral-300);
+  --hover: var(--color-neutral-700);
+  --danger-transparent: rgba(239, 68, 68, 0.1);
+  --success-transparent: rgba(16, 185, 129, 0.1);
+  --warning-transparent: rgba(245, 158, 11, 0.1);
+  --accent: #14b8a6;
+  --accent-dim: #0d9488;
+  --accent-transparent: rgba(20, 184, 166, 0.1);
+  --border-default: var(--border-color-dark-default);
+  --border-subtle: var(--border-color-dark-subtle);
+  --border-emphasis: var(--border-color-dark-emphasis);
+  --border-interactive: var(--border-color-dark-interactive);
+  --border-error: var(--border-color-dark-error);
+  --border-success: var(--border-color-dark-success);
+}
+
+/* Light theme: manual override (higher-contrast accent, as before) */
+:root[data-theme="light"] {
+  --accent: #0a7668;
+  --accent-dim: #095c4f;
+  --accent-transparent: rgba(10, 118, 104, 0.1);
+}

@@ -115,7 +115,12 @@ describe('ShortcutsHelp', () => {
   it('closes when the backdrop overlay is clicked', () => {
     render(<ShortcutsHelp />);
     fireEvent.keyDown(document, { key: '?' });
-    fireEvent.click(screen.getByRole('dialog'));
+    // Modal stops propagation on clicks inside the dialog content itself, so
+    // the backdrop (the dialog's containing overlay element) must be
+    // targeted directly to trigger the close-on-outside-click behavior.
+    const backdrop = screen.getByRole('dialog').parentElement;
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop!);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

@@ -49,7 +49,7 @@ export interface Milestone {
   evidenceUrl?: string;
 }
 
-/** A lightweight on-chain transaction record stored on the Vault itself. */
+/** A weightless on-chain transaction record stored on the Vault itself. */
 export interface VaultTransaction {
   id: string;
   type: TxType;
@@ -75,3 +75,10 @@ export interface Vault {
   milestones: Milestone[];
   transactions: VaultTransaction[];
 }
+
+/**
+ * Actions a wallet can perform on a vault. Shared between the UI
+ * (`VaultDetail`), the service seam (`submitVaultAction`), and the
+ * permission evaluator (`evalVaultActionAuth`).
+ */
+export type VaultAction = 'validate_milestone' | 'extend_deadline' | 'cancel_vault';

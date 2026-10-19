@@ -1,3 +1,5 @@
+import { logger } from './logger';
+
 /**
  * Web Vitals Reporter
  * 
@@ -25,6 +27,15 @@ export interface Metric {
 }
 
 type MetricCallback = (metric: Metric) => void;
+
+interface LayoutShiftEntry extends PerformanceEntry {
+  hadRecentInput: boolean;
+  value: number;
+}
+
+interface EventTimingEntry extends PerformanceEntry {
+  processingStart: number;
+}
 
 /**
  * Reports Core Web Vitals to the provided callback.
@@ -61,11 +72,11 @@ export function reportWebVitals(onReport?: MetricCallback): void {
 
       try {
         lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
-      } catch (e) {
+      } catch {
         // LCP observation failed, continue silently
       }
     }
-  } catch (e) {
+  } catch {
     // LCP setup failed, continue silently
   }
 
@@ -75,8 +86,9 @@ export function reportWebVitals(onReport?: MetricCallback): void {
       let clsValue = 0;
       const clsObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          if (!(entry as any).hadRecentInput) {
-            clsValue += (entry as any).value;
+          const layoutShift = entry as LayoutShiftEntry;
+          if (!layoutShift.hadRecentInput) {
+            clsValue += layoutShift.value;
           }
         }
 
@@ -93,11 +105,11 @@ export function reportWebVitals(onReport?: MetricCallback): void {
 
       try {
         clsObserver.observe({ type: 'layout-shift', buffered: true });
-      } catch (e) {
+      } catch {
         // CLS observation failed, continue silently
       }
     }
-  } catch (e) {
+  } catch {
     // CLS setup failed, continue silently
   }
 
@@ -106,11 +118,12 @@ export function reportWebVitals(onReport?: MetricCallback): void {
     if ('PerformanceObserver' in window) {
       const inpObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
+          const eventTiming = entry as EventTimingEntry;
           const metric: Metric = {
             id: `inp-${Date.now()}`,
             name: 'INP',
-            value: (entry as any).processingStart - (entry as any).startTime,
-            rating: getInpRating((entry as any).processingStart - (entry as any).startTime),
+            value: eventTiming.processingStart - eventTiming.startTime,
+            rating: getInpRating(eventTiming.processingStart - eventTiming.startTime),
             navigationType: getNavigationType(),
           };
 
@@ -120,16 +133,17 @@ export function reportWebVitals(onReport?: MetricCallback): void {
 
       try {
         inpObserver.observe({ type: 'event', buffered: true });
-      } catch (e) {
+      } catch {
         // INP observation failed, try FID as fallback
         try {
           const fidObserver = new PerformanceObserver((list) => {
             for (const entry of list.getEntries()) {
+              const eventTiming = entry as EventTimingEntry;
               const metric: Metric = {
                 id: `fid-${Date.now()}`,
                 name: 'FID',
-                value: (entry as any).processingStart - entry.startTime,
-                rating: getFidRating((entry as any).processingStart - entry.startTime),
+                value: eventTiming.processingStart - eventTiming.startTime,
+                rating: getFidRating(eventTiming.processingStart - eventTiming.startTime),
                 navigationType: getNavigationType(),
               };
 
@@ -138,12 +152,12 @@ export function reportWebVitals(onReport?: MetricCallback): void {
           });
 
           fidObserver.observe({ type: 'first-input', buffered: true });
-        } catch (e2) {
+        } catch {
           // FID observation failed, continue silently
         }
       }
     }
-  } catch (e) {
+  } catch {
     // INP/FID setup failed, continue silently
   }
 }
@@ -157,7 +171,7 @@ function safeReport(metric: Metric, onReport: MetricCallback): void {
     onReport(metric);
   } catch (e) {
     // Callback threw an error, log it but don't crash the app
-    console.error('Web Vitals reporter callback threw an error:', e);
+    logger.error('Web Vitals reporter callback threw an error:', e);
   }
 }
 

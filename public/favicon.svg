@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Disciplr">
+  <!-- Background: Disciplr dark surface (neutral-900 #111827) -->
+  <rect width="32" height="32" rx="6" fill="#111827"/>
+  <!-- Accent bar: secondary teal (#0D9488) top-left corner mark -->
+  <rect x="5" y="5" width="3" height="22" rx="1.5" fill="#0D9488"/>
+  <!-- D letterform: primary blue (#1E40AF) -->
+  <!-- Vertical stem -->
+  <rect x="9" y="5" width="3" height="22" rx="1" fill="#1E40AF"/>
+  <!-- Top horizontal arm -->
+  <rect x="9" y="5" width="11" height="3" rx="1" fill="#1E40AF"/>
+  <!-- Bottom horizontal arm -->
+  <rect x="9" y="24" width="11" height="3" rx="1" fill="#1E40AF"/>
+  <!-- Right arc — two segments approximating the D curve -->
+  <rect x="18" y="8" width="3" height="4" rx="1" fill="#1E40AF"/>
+  <rect x="20" y="12" width="3" height="8" rx="1" fill="#1E40AF"/>
+  <rect x="18" y="20" width="3" height="4" rx="1" fill="#1E40AF"/>
+</svg>

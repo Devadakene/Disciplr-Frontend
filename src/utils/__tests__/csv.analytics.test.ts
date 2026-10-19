@@ -75,7 +75,7 @@ describe('CSV analytics export', () => {
         (row) => {
           const result = toCsv([row], 'analytics')
           // Should have header + one data row
-          const [header, dataRow] = result.split('\r\n')
+          const [, dataRow] = result.split('\r\n')
           // Check that injection chars are escaped
           if (row.name.startsWith('=') || row.name.startsWith('+') || row.name.startsWith('-') || row.name.startsWith('@') || row.name.startsWith('\t')) {
             // Should have escaped with single quote prefix or quotes

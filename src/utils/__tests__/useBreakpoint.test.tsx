@@ -108,4 +108,18 @@ describe('useBreakpoint', () => {
 
     expect(result.current).toBe(false)
   })
+
+  it('returns false without throwing when matchMedia exists but returns undefined', () => {
+    // e.g. a test that called vi.restoreAllMocks() after setupTests defined the
+    // matchMedia stub: the function exists but yields no MediaQueryList.
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockReturnValue(undefined),
+    })
+
+    const { result } = renderHook(() => useBreakpoint('sm'))
+
+    expect(result.current).toBe(false)
+  })
 })

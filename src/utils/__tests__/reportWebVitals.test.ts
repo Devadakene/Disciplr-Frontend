@@ -1,3 +1,9 @@
+// This suite exercises browser-only globals (window, PerformanceObserver),
+// which the project's default vitest environment for plain .test.ts files
+// ('node', see vitest.config.ts) does not provide. Force jsdom for this file
+// so `typeof window === 'undefined'` doesn't short-circuit reportWebVitals()
+// before it ever reaches the PerformanceObserver wiring under test.
+// @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { reportWebVitals, type Metric } from '../reportWebVitals';
 
@@ -78,23 +84,28 @@ describe('reportWebVitals', () => {
       const errorCallback = vi.fn(() => {
         throw new Error('Callback error');
       });
-      
+
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      
-      const mockPerformanceObserver = vi.fn();
-      mockPerformanceObserver.mockImplementation(() => ({
-        observe: vi.fn(),
-      }));
-      
+
+      // reportWebVitals only invokes the callback once the PerformanceObserver
+      // reports an entry, so capture the LCP observer's callback and invoke
+      // it with a fake entry to actually exercise the error-handling path.
+      let capturedLcpCallback: ((list: { getEntries: () => unknown[] }) => void) | undefined;
+      const mockPerformanceObserver = vi.fn((callback: (list: { getEntries: () => unknown[] }) => void) => {
+        if (!capturedLcpCallback) capturedLcpCallback = callback;
+        return { observe: vi.fn() };
+      });
+
       global.PerformanceObserver = mockPerformanceObserver as any;
-      
+
       reportWebVitals(errorCallback);
-      
+      capturedLcpCallback?.({ getEntries: () => [{ renderTime: 1200, startTime: 0 }] });
+
       expect(consoleSpy).toHaveBeenCalledWith(
         'Web Vitals reporter callback threw an error:',
         expect.any(Error)
       );
-      
+
       consoleSpy.mockRestore();
     });
   });
@@ -104,7 +115,7 @@ describe('reportWebVitals', () => {
       const callback = vi.fn();
       const originalWindow = global.window;
       
-      // @ts-ignore - testing SSR scenario
+      // @ts-expect-error - testing SSR scenario
       delete global.window;
       
       reportWebVitals(callback);
@@ -119,7 +130,7 @@ describe('reportWebVitals', () => {
       const callback = vi.fn();
       const originalPerformanceObserver = global.PerformanceObserver;
       
-      // @ts-ignore - testing missing PerformanceObserver
+      // @ts-expect-error - testing missing PerformanceObserver
       delete global.PerformanceObserver;
       
       expect(() => {

@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  MAX_EVIDENCE_URL_LENGTH,
+  MAX_MILESTONES_RENDERED,
   Milestone,
   MilestoneTracker,
 } from "../../components/MilestoneTracker";
@@ -235,5 +237,230 @@ describe("MilestoneTracker", () => {
     expect(link).toHaveAttribute("href", "http://example.com/evidence");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("bounds evidenceUrl to MAX_EVIDENCE_URL_LENGTH before passing to SafeLink", () => {
+    const longPath = "a".repeat(3000);
+    const longUrl = `https://example.com/${longPath}`;
+    const boundedMilestones: Milestone[] = [
+      {
+        id: "m1",
+        title: "Long URL Evidence",
+        description: "Test milestone",
+        criteria: "Test",
+        status: "validated",
+        validatedAt: "2024-02-20T14:30:00Z",
+        evidenceUrl: longUrl,
+      },
+    ];
+
+    render(<MilestoneTracker milestones={boundedMilestones} />);
+
+    const link = screen.getByRole("link", { name: "View evidence" });
+    expect(link.getAttribute("href")).toHaveLength(MAX_EVIDENCE_URL_LENGTH);
+    expect(link).toHaveAttribute("href", longUrl.slice(0, MAX_EVIDENCE_URL_LENGTH));
+  });
+
+  it("renders loading state when isLoading is true", () => {
+    render(<MilestoneTracker milestones={milestones} isLoading />);
+    expect(screen.getByText("Loading milestones...")).toBeInTheDocument();
+    expect(document.querySelector('.milestone-tracker-loading')).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("renders error state when validated milestone is missing validatedAt", () => {
+    const invalidMilestones: Milestone[] = [
+      {
+        id: "m1",
+        title: "Invalid",
+        description: "Missing timestamp",
+        criteria: "Test",
+        status: "validated",
+      },
+    ];
+    render(<MilestoneTracker milestones={invalidMilestones} />);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText(/missing validatedAt timestamp/)).toBeInTheDocument();
+  });
+
+  it("renders error state when pending milestone has validation evidence", () => {
+    const invalidMilestones: Milestone[] = [
+      {
+        id: "m1",
+        title: "Invalid",
+        description: "Pending with evidence",
+        criteria: "Test",
+        status: "pending",
+        validatedAt: "2024-02-20T14:30:00Z",
+      },
+    ];
+    render(<MilestoneTracker milestones={invalidMilestones} />);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText(/contains validation evidence/)).toBeInTheDocument();
+  });
+
+  it("renders error state for impossible transition (validated after pending)", () => {
+    const invalidMilestones: Milestone[] = [
+      {
+        id: "m1",
+        title: "Pending First",
+        description: "",
+        criteria: "",
+        status: "pending",
+      },
+      {
+        id: "m2",
+        title: "Validated Second",
+        description: "",
+        criteria: "",
+        status: "validated",
+        validatedAt: "2024-02-20T14:30:00Z",
+      },
+    ];
+    render(<MilestoneTracker milestones={invalidMilestones} />);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText(/appears after a pending or failed milestone/)).toBeInTheDocument();
+  });
+
+  it("renders manage milestone button when canManage is true and milestone is current", () => {
+    const onManageMilestone = vi.fn();
+    render(<MilestoneTracker milestones={milestones} canManage onManageMilestone={onManageMilestone} />);
+    
+    const manageButton = screen.getByRole("button", { name: /Manage milestone: Beta Launch/ });
+    expect(manageButton).toBeInTheDocument();
+
+    manageButton.click();
+    expect(onManageMilestone).toHaveBeenCalledWith(milestones[1]);
+  });
+});
+
+describe("MilestoneTracker hostile input boundary", () => {
+  it("renders an unknown-status badge instead of crashing on an unrecognized status", () => {
+    const bad: Milestone[] = [
+      {
+        id: "m1",
+        title: "Weird",
+        description: "Test",
+        criteria: "Test",
+        status: "delivered" as never,
+      },
+    ];
+
+    render(<MilestoneTracker milestones={bad} />);
+
+    expect(screen.getByText("Weird")).toBeInTheDocument();
+    expect(screen.getByText("Unknown status")).toBeInTheDocument();
+  });
+
+  it("surfaces a data-inconsistency notice for an unrecognized status", () => {
+    const bad: Milestone[] = [
+      {
+        id: "m1",
+        title: "Weird",
+        description: "Test",
+        criteria: "Test",
+        status: "delivered" as never,
+      },
+    ];
+
+    render(<MilestoneTracker milestones={bad} />);
+
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveAttribute(
+      "aria-label",
+      "Milestone data inconsistency notice",
+    );
+    expect(notice.textContent).toMatch(/unrecognized status/);
+  });
+
+  it("renders 'Validated Unknown' for an unparseable validatedAt instead of NaN garbage", () => {
+    const bad: Milestone[] = [
+      {
+        id: "m1",
+        title: "T",
+        description: "Test",
+        criteria: "Test",
+        status: "validated",
+        validatedAt: "not a real timestamp" as string,
+      },
+    ];
+
+    render(<MilestoneTracker milestones={bad} />);
+
+    expect(screen.getByText(/Validated Unknown/)).toBeInTheDocument();
+  });
+
+  it("does not render a validated-at line for an empty validatedAt", () => {
+    const bad: Milestone[] = [
+      {
+        id: "m1",
+        title: "T",
+        description: "Test",
+        criteria: "Test",
+        status: "validated",
+        validatedAt: "",
+      },
+    ];
+
+    render(<MilestoneTracker milestones={bad} />);
+
+    expect(document.querySelector(".milestone-tracker-validated-at")).toBeNull();
+  });
+
+  it("uses unique keys and still renders all milestones when ids are duplicated", () => {
+    const dup: Milestone[] = [
+      { ...milestones[0], id: "dup" },
+      { ...milestones[1], id: "dup" },
+    ];
+
+    render(<MilestoneTracker milestones={dup} />);
+
+    expect(document.querySelectorAll(".milestone-tracker-step")).toHaveLength(2);
+    expect(screen.getByText("Phase 1 Complete")).toBeInTheDocument();
+    expect(screen.getByText("Beta Launch")).toBeInTheDocument();
+  });
+
+  it("flags duplicated ids in the inconsistency notice", () => {
+    const dup: Milestone[] = [
+      { ...milestones[0], id: "dup" },
+      { ...milestones[1], id: "dup" },
+    ];
+
+    render(<MilestoneTracker milestones={dup} />);
+
+    expect(screen.getByRole("status").textContent).toMatch(/appears more than once/);
+  });
+
+  it("renders milestones with a missing id without crashing", () => {
+    const missingId: Milestone[] = [
+      {
+        id: "",
+        title: "Missing Id Title",
+        description: "Test",
+        criteria: "Test",
+        status: "pending",
+      },
+    ];
+
+    render(<MilestoneTracker milestones={missingId} />);
+
+    expect(screen.getByText("Missing Id Title")).toBeInTheDocument();
+  });
+
+  it("flags impossible transitions where a resolved milestone follows the pending step", () => {
+    const impossible: Milestone[] = [
+      { ...milestones[0], id: "m1", status: "validated", validatedAt: "2024-02-20T14:30:00Z" },
+      { ...milestones[1], id: "m2" },
+      { ...milestones[1], id: "m3", status: "validated", validatedAt: "2024-03-01T00:00:00Z" },
+    ];
+
+    render(<MilestoneTracker milestones={impossible} />);
+
+    expect(screen.getByRole("status").textContent).toMatch(/validated before the current pending/);
+  });
+
+  it("does not flag a coherent validated-then-pending sequence", () => {
+    render(<MilestoneTracker milestones={milestones} />);
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

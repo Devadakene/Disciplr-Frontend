@@ -23,8 +23,6 @@ export function dateBucket(timestamp: string, now: Date): DateBucket {
   const itemDay = new Date(itemDate.getFullYear(), itemDate.getMonth(), itemDate.getDate());
 
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
 
   const diffMs = today.getTime() - itemDay.getTime();
   if (diffMs === 0) return 'Today';
@@ -41,8 +39,8 @@ const BUCKET_ORDER: DateBucket[] = ['Today', 'Yesterday', 'Earlier'];
  * - Groups are returned in the canonical order: Today → Yesterday → Earlier.
  * - Empty groups are omitted.
  *
- * @param items  - Array of items that each have a `timestamp` ISO string.
- * @param now    - Reference time; defaults to `new Date()`.
+ * @param items - Array of items that each have a `timestamp` ISO string.
+ * @param now - Reference time; defaults to `new Date()`.
  */
 export function groupNotificationsByDate<T extends { timestamp: string }>(
   items: T[],

@@ -56,3 +56,28 @@ export function vaultLifecycleStages(status: VaultStatus | string): VaultLifecyc
     finalStageFor(status),
   ];
 }
+
+/**
+ * Calculates percentage progress between creation and deadline dates.
+ * Clamps result between 0 and 100, guarding against invalid dates and equal timestamps.
+ */
+export function timelineProgress(
+  created: string,
+  deadline: string,
+  now: number = Date.now(),
+): number {
+  const start = new Date(created).getTime();
+  const end = new Date(deadline).getTime();
+
+  if (Number.isNaN(start) || Number.isNaN(end)) {
+    return 0;
+  }
+
+  if (end <= start) {
+    return now >= start ? 100 : 0;
+  }
+
+  const progress = ((now - start) / (end - start)) * 100;
+  return Math.min(100, Math.max(0, progress));
+}
+

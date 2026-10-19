@@ -10,7 +10,7 @@ Design tokens live in `design-system/tokens/`:
 | Token file        | Runtime surface                                                                                                                                                       | Notes                                                                                                       |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `colors.json`     | CSS variables in `src/index.css` such as `--bg`, `--surface`, `--text`, `--muted`, `--accent`, `--success`, `--warning`, and chart variables used by analytics views. | Use semantic names in components instead of hard-coded colors.                                              |
-| `typography.json` | Typography CSS variables and classes in `src/index.css`, plus `src/utils/typography.ts`.                                                                              | Components should use the `Text` component or `classifyTypography()` roles where possible.                  |
+| `typography.json` | Typography CSS variables and classes in `src/index.css`, plus `src/utils/typography.ts`.                                                                              | Components should use the `Text` component where possible.                  |
 | `spacing.json`    | Spacing, container, touch-target, and breakpoint CSS variables in `src/index.css`; breakpoint details are documented in `documentation/breakpoints.md`.               | Prefer `--spacing-*`, `--container-*`, and breakpoint tokens over one-off values.                           |
 | `borders.json`    | Radius, border-width, and semantic border CSS variables in `src/index.css`.                                                                                           | Use `--radius-*`, `--border-width-*`, and semantic border variables for cards, fields, buttons, and modals. |
 | `shadows.json`    | Elevation language for raised surfaces and overlays.                                                                                                                  | Match existing component surfaces before adding a new shadow.                                               |
@@ -126,13 +126,13 @@ The site-wide navigation is defined in `src/components/Layout.tsx` for desktop h
 `src/components/VaultFilterBar.tsx` is a controlled filter bar for vault lists.
 It combines a status `<select>` and a name search `<input type="search">` in a
 single composable component backed by the pure `filterVaults` utility in
-`src/utils/filterVaults.ts`.
+`src/utils/vaultFilter.ts`.
 
 ```tsx
 import { useState } from 'react';
 import { VaultFilterBar } from '../components/VaultFilterBar';
-import { filterVaults } from '../utils/filterVaults';
-import type { VaultFilters } from '../utils/filterVaults';
+import { filterVaults } from '../utils/vaultFilter';
+import type { VaultFilters } from '../utils/vaultFilter';
 
 const [filters, setFilters] = useState<VaultFilters>({ status: 'all', query: '' });
 const visible = filterVaults(vaults, filters);

@@ -1,0 +1,91 @@
+/* Toast viewport — z-index from design-system/tokens/z-index.json via CSS var */
+.toast-viewport {
+  position: fixed;
+  bottom: var(--spacing-4, 1rem);
+  right: var(--spacing-4, 1rem);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2, 0.5rem);
+  z-index: var(--z-index-toast, 400);
+  pointer-events: none;
+  max-width: min(24rem, calc(100vw - 2rem));
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-3, 0.75rem);
+  padding: var(--spacing-3, 0.75rem) var(--spacing-4, 1rem);
+  border-radius: var(--radius-md, 0.5rem);
+  min-width: 16rem;
+  max-width: 24rem;
+  color: #f8fafc;
+  box-shadow: var(--shadow-level-3, 0 4px 12px rgba(0, 0, 0, 0.12));
+  font-size: var(--font-size-body, 0.875rem);
+  line-height: var(--line-height-body, 1.25rem);
+  border: var(--border-width-1, 1px) solid transparent;
+  /* Enter animation — disabled under prefers-reduced-motion below */
+  animation: toast-enter var(--duration-moderate, 300ms) var(--ease-out, ease-out) both;
+}
+
+.toast--info {
+  background: var(--info);
+  border-color: var(--info);
+}
+
+.toast--success {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.toast--error {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.toast__message {
+  flex: 1;
+  word-break: break-word;
+}
+
+.toast__dismiss {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 0.15rem;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.125rem;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.toast__dismiss:hover,
+.toast__dismiss:focus-visible {
+  opacity: 1;
+}
+
+.toast__dismiss:focus-visible {
+  outline: var(--focus-ring-width, 2px) solid currentColor;
+  outline-offset: var(--focus-ring-offset, 2px);
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

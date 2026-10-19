@@ -7,7 +7,7 @@ All tests run with **Vitest** (`npm run test`).
 
 | Utility | Functions under test | Target |
 |---|---|---|
-| `typography.ts` | `getTypographyClass`, `classifyTypography` | 100 % |
+| `typography.ts` | `getTypographyClass` | 100 % |
 | `url.ts` | `isSafeEvidenceUrl`, `normalizeEvidenceUrl` | ≥ 95 % |
 | `csv.ts` | CSV helpers | ≥ 95 % |
 | `paginate.ts` | Pagination helpers | ≥ 95 % |
@@ -29,7 +29,5 @@ class string:
 | `caption` | `text-caption` |
 | `mono` | `text-mono` |
 
-`classifyTypography(role, additionalClasses?)` joins the base class with any
-extra classes using a single space.  When `additionalClasses` is `undefined` or
-an empty string, only the base class is returned — no trailing whitespace is
-added.
+Class composition with additional styles is handled directly by the `Text` primitive (`src/components/Text.tsx`). The deprecated `classifyTypography` export is removed to minimize surface area and prevent redundant wrappers.
+
