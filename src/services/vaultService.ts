@@ -13,6 +13,17 @@
 import type { Vault, VaultTransaction, Milestone } from "../types/vault";
 import { MASTER_VAULTS } from "../fixtures/vaults";
 import { MASTER_ACTIVITY } from "../fixtures/transactions";
+import { cached, invalidate, type CacheOptions } from "./queryCache";
+
+/**
+ * Drop cached reads affected by a vault write. Call after any successful
+ * mutation (create, validate, fail, ...).
+ */
+export function invalidateVaultCaches(id?: string): void {
+  invalidate("vaults");
+  invalidate("activity");
+  invalidate(id === undefined ? "vault:" : `vault:${id}`);
+}
 
 // ── Re-export canonical types for consumers that need them ────────────────────
 export type { Vault, VaultTransaction };
@@ -50,8 +61,8 @@ export interface VaultActivityRecord {
  *
  * SEAM → replace with: Horizon account fetch + Soroban contract reads.
  */
-export async function listVaults(): Promise<Vault[]> {
-  return Object.values(MASTER_VAULTS);
+export async function listVaults(options?: CacheOptions): Promise<Vault[]> {
+  return cached("vaults", async () => Object.values(MASTER_VAULTS), options);
 }
 
 /**
@@ -60,8 +71,12 @@ export async function listVaults(): Promise<Vault[]> {
  *
  * SEAM → replace with: Soroban contract state read for a given contract address.
  */
-export async function getVault(id: string): Promise<Vault | undefined> {
-  return MASTER_VAULTS[id];
+export async function getVault(
+  id: string,
+  options?: CacheOptions,
+): Promise<Vault | undefined> {
+  // Map-backed cache: ids such as "__proto__" cannot pollute keys.
+  return cached(`vault:${id}`, async () => MASTER_VAULTS[id], options);
 }
 
 /**
@@ -71,7 +86,7 @@ export async function getVault(id: string): Promise<Vault | undefined> {
  * SEAM → replace with: Horizon `/transactions?account=<contractAddress>` + filter.
  */
 export async function getTransactions(id: string): Promise<VaultTransaction[]> {
-  return MASTER_VAULTS[id]?.transactions ?? [];
+  return (await getVault(id))?.transactions ?? [];
 }
 
 /**
@@ -90,8 +105,10 @@ export function getCachedActivity(): VaultActivityRecord[] {
  * SEAM → replace with: Horizon transaction stream aggregated across all vault
  * contract addresses.
  */
-export async function listAllActivity(): Promise<VaultActivityRecord[]> {
-  return [...MASTER_ACTIVITY];
+export async function listAllActivity(
+  options?: CacheOptions,
+): Promise<VaultActivityRecord[]> {
+  return cached("activity", async () => [...MASTER_ACTIVITY], options);
 }
 
 /**
@@ -138,5 +155,6 @@ export async function createVault(vaultData: {
     ]
   };
   MASTER_VAULTS[nextId] = newVault;
+  invalidateVaultCaches(nextId);
   return newVault;
 }
