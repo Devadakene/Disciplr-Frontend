@@ -20,7 +20,7 @@ export default [
       ecmaVersion: 2020,
       globals: globals.browser,
       parserOptions: {
-        eccmaFeatures: {
+        ecmaFeatures: {
           jsx: true,
         },
       },
@@ -44,6 +44,24 @@ export default [
       '@typescript-eslint/no-unused-vars': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       'no-control-regex': 'off',
+    },
+  },
+  {
+    // Disallow direct console calls in application source code
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
+    // Override no-console for the shared logger implementation and tests
+    files: [
+      'src/utils/logger.ts',
+      'src/**/*.test.{js,jsx,ts,tsx}',
+      'src/**/__tests__/**/*.{js,jsx,ts,tsx}',
+    ],
+    rules: {
+      'no-console': 'off',
     },
   },
   {

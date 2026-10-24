@@ -197,6 +197,8 @@ export function registerShortcut(registration: ShortcutRegistration): () => void
   // Duplicate warning
   const existing = shortcuts.find((s) => s.normalizedKeys === normalizedKeys);
   if (existing) {
+    // Developer-facing warning; tests assert on console.warn.
+    // eslint-disable-next-line no-console
     console.warn(`Duplicate shortcut registration for keys: "${registration.keys}"`);
   }
 

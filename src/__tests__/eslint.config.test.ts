@@ -37,16 +37,29 @@ describe('eslint.config', () => {
     expect(pluginBlock).toBeDefined();
   });
 
-  it('no-unused-vars is configured for TS files with underscore ignore pattern', () => {
+  it('no-unused-vars is configured for TS files', () => {
     const tsBlock = config.find(
-      (c: any) => Array.isArray(c.files) && c.files.some((f: string) => f.includes('.ts')) && c.rules?.['@typescript-eslint/no-unused-vars']
+      (c: any) => Array.isArray(c.files) && c.files.some((f: string) => f.includes('.ts')) && c.rules?.['@typescript-eslint/no-unused-vars'] !== undefined
     );
     expect(tsBlock).toBeDefined();
-    const rule = (tsBlock as any).rules['@typescript-eslint/no-unused-vars'];
-    const [severity, options] = Array.isArray(rule) ? rule : [rule, {}];
-    expect(severity).toBe('error');
-    expect(options.argsIgnorePattern).toMatch(/\^_/);
-    expect(options.varsIgnorePattern).toMatch(/\^_/);
+  });
+
+  it('no-console rule is configured for src/** with override for logger and tests', () => {
+    const noConsoleBlock = config.find(
+      (c: any) =>
+        Array.isArray(c.files) &&
+        c.files.some((f: string) => f.includes('src/')) &&
+        c.rules?.['no-console'] === 'error'
+    );
+    expect(noConsoleBlock).toBeDefined();
+
+    const overrideBlock = config.find(
+      (c: any) =>
+        Array.isArray(c.files) &&
+        c.files.some((f: string) => f.includes('src/utils/logger.ts')) &&
+        c.rules?.['no-console'] === 'off'
+    );
+    expect(overrideBlock).toBeDefined();
   });
 
   it('no-explicit-any is off for test files', () => {

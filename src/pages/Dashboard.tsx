@@ -53,8 +53,7 @@ function toSafePreviews(loaded: Vault[]): VaultPreview[] {
     if (result.ok) {
       safe.push(preview);
     } else {
-      // eslint-disable-next-line no-console
-      console.warn("[Dashboard] dropped invalid vault preview", {
+      logger.warn("[Dashboard] dropped invalid vault preview", {
         id: v.id,
         reason: result.reason,
       });

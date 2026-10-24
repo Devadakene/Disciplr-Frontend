@@ -1,5 +1,6 @@
 import React, { useState, useCallback, Component, ReactNode, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { logger } from '../utils/logger';
 import './Layout.css';
 
 /**
@@ -199,7 +200,7 @@ export default function ThemeToggle() {
   const handleClick = useCallback((event: unknown) => {
     // Validate event object to prevent tampering
     if (!isValidClickEvent(event)) {
-      console.warn('ThemeToggle: Invalid click event received', event);
+      logger.warn('ThemeToggle: Invalid click event received', event);
       return;
     }
 
@@ -211,7 +212,7 @@ export default function ThemeToggle() {
       toggleTheme();
     } catch (error) {
       // Log error but don't crash the UI
-      console.error('ThemeToggle: Failed to toggle theme', error);
+      logger.error('ThemeToggle: Failed to toggle theme', error);
       
       // Could emit to error tracking service here
       // errorTracker.captureException(error, { context: 'theme-toggle' });
