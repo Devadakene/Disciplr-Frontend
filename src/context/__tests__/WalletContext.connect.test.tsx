@@ -8,6 +8,10 @@ const freighterApi = vi.hoisted(() => ({
   requestAccess: vi.fn(),
   getAddress: vi.fn(),
   getNetworkDetails: vi.fn(),
+  WatchWalletChanges: class {
+    watch = vi.fn();
+    stop = vi.fn();
+  },
 }));
 
 const telemetry = vi.hoisted(() => ({

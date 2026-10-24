@@ -9,6 +9,14 @@ vi.mock('@stellar/freighter-api', () => ({
   requestAccess: vi.fn(),
   getAddress: vi.fn(),
   getNetworkDetails: vi.fn().mockResolvedValue({ network: 'TESTNET' }),
+  WatchWalletChanges: class {
+    timeout?: number;
+    watch = vi.fn();
+    stop = vi.fn();
+    constructor(timeout?: number) {
+      this.timeout = timeout;
+    }
+  },
 }));
 
 vi.mock('../../utils/horizon', () => ({
@@ -21,12 +29,13 @@ vi.mock('../../utils/walletTelemetry', () => ({
 }));
 
 function TestConsumer() {
-  const { address, sessionStatus, status, error } = useWallet();
+  const { address, network, sessionStatus, status, error } = useWallet();
   return (
     <div>
       <div data-testid="session-status">{sessionStatus}</div>
       <div data-testid="status">{status}</div>
       <div data-testid="address">{address ?? 'none'}</div>
+      <div data-testid="network">{network ?? 'none'}</div>
       <div data-testid="error">{error ?? 'none'}</div>
     </div>
   );
@@ -58,12 +67,15 @@ describe('WalletContext session restore', () => {
 
     // Wait for resolution
     await act(async () => {
-      await Promise.resolve();
+      for (let i = 0; i < 6; i += 1) {
+        await Promise.resolve();
+      }
     });
 
     expect(screen.getByTestId('session-status').textContent).toBe('authenticated');
     expect(screen.getByTestId('status').textContent).toBe('connected');
     expect(screen.getByTestId('address').textContent).toBe('GALLOWED123');
+    expect(screen.getByTestId('network').textContent).toBe('TESTNET');
   });
 
   it('transitions to anonymous when isAllowed is false', async () => {
@@ -78,7 +90,9 @@ describe('WalletContext session restore', () => {
     expect(screen.getByTestId('session-status').textContent).toBe('resolving');
 
     await act(async () => {
-      await Promise.resolve();
+      for (let i = 0; i < 6; i += 1) {
+        await Promise.resolve();
+      }
     });
 
     expect(screen.getByTestId('session-status').textContent).toBe('anonymous');
@@ -113,7 +127,9 @@ describe('WalletContext session restore', () => {
     );
 
     await act(async () => {
-      await Promise.resolve();
+      for (let i = 0; i < 6; i += 1) {
+        await Promise.resolve();
+      }
     });
 
     expect(screen.getByTestId('session-status').textContent).toBe('anonymous');
@@ -131,7 +147,9 @@ describe('WalletContext session restore', () => {
     );
 
     await act(async () => {
-      await Promise.resolve();
+      for (let i = 0; i < 6; i += 1) {
+        await Promise.resolve();
+      }
     });
 
     expect(screen.getByTestId('session-status').textContent).toBe('anonymous');

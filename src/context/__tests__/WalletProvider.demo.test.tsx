@@ -18,6 +18,10 @@ vi.mock('@stellar/freighter-api', () => ({
   requestAccess: vi.fn(),
   getAddress: vi.fn(),
   getNetworkDetails: vi.fn().mockResolvedValue({ network: 'PUBLIC' }),
+  WatchWalletChanges: class {
+    watch = vi.fn();
+    stop = vi.fn();
+  },
 }));
 
 vi.mock('../../utils/horizon', () => ({
