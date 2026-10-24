@@ -1,47 +1,45 @@
 # Performance Observability
 
-## Web Vitals Reporting
+## Web Vitals Reporting (Issue #1536)
 
 Disciplr uses a lightweight web-vitals reporting seam to capture Core Web Vitals for performance observability. This enables detection of regressions from heavy components (recharts, jsPDF) and data-heavy tables in vault/verifier flows.
 
 ### Implementation
 
-**Location:** `src/utils/reportWebVitals.ts`
+**Locations:** `src/utils/reportWebVitals.ts` (measurement) and `src/utils/vitalsSink.ts` (delivery)
 
 The reporter uses the native Performance API to capture:
 - **LCP** (Largest Contentful Paint) - Loading performance
-- **CLS** (Cumulative Layout Shift) - Visual stability  
-- **INP** (Interaction to Next Paint) - Interactivity (with FID fallback)
+- **CLS** (Cumulative Layout Shift) - Visual stability
+- **INP** (Interaction to Next Paint) - Interactivity
 
-### Usage
+FID is no longer reported: it is deprecated in favour of INP.
 
-**In `src/main.tsx`:**
+Measurement follows the reference algorithms from the [`web-vitals`](https://github.com/GoogleChrome/web-vitals) package (v5), without taking a dependency on it, so the app keeps its zero-external-dependency design:
 
-```typescript
-import { reportWebVitals } from './utils/reportWebVitals';
+- **CLS** - Layout shifts are grouped into session windows (max 5s window, resets after 1s of no shifts or on input). Shifts with `hadRecentInput` are excluded. The largest window is reported; `0` is reported if no shifts occurred.
+- **INP** - Event timings (via the `event` observer with `durationThreshold: 40` plus `first-input`) are grouped by `interactionId`, keeping the longest duration per interaction. Entries with a falsy `interactionId` are ignored. The reported value is the p98 estimate over the top-10 longest interactions (index `min(len - 1, floor(count / 50))`).
+- **LCP** - The latest entry's value (`renderTime || loadTime || startTime`) is held until finalisation; later entries after finalisation are ignored.
 
-// Development: console logging
-reportWebVitals((metric) => {
-  console.log('[Web Vitals]', metric);
-});
+### Finalisation
 
-// Production: send to analytics service
-reportWebVitals((metric) => {
-  // Example: sendToAnalytics(metric)
-  analytics.track('web_vital', metric);
-});
-```
+Each metric is reported **exactly once** per page lifecycle:
+
+- **LCP** finalises on the first `keydown`/`pointerdown`, or when the page hides - whichever comes first.
+- **CLS** and **INP** finalise when the page hides.
+- "Page hides" means `visibilitychange -> hidden` or `pagehide`; buffered records are flushed with `PerformanceObserver.takeRecords()` first so nothing observed during the event is lost.
+- On a `pageshow` with `persisted` (back/forward-cache restore) the session state resets with new metric ids and observers re-arm with `buffered: false`, so pre-restore entries are not replayed as new metrics.
 
 ### Metric Interface
 
 ```typescript
 interface Metric {
-  id: string;           // Unique identifier (e.g., 'lcp-1234567890')
-  name: string;         // 'LCP' | 'CLS' | 'INP' | 'FID'
-  value: number;        // Metric value in milliseconds (LCP, INP, FID) or unitless (CLS)
+  id: string;           // Unique identifier, 'v1-<timestamp>-<random>'
+  name: string;         // 'LCP' | 'CLS' | 'INP'
+  value: number;        // Metric value in milliseconds (LCP, INP) or unitless (CLS)
   rating: 'good' | 'needs-improvement' | 'poor';
-  delta?: number;       // Change from previous value (if available)
-  navigationType?: string; // 'navigate' | 'reload' | 'back_forward' | 'unknown'
+  delta: number;        // Change from the previous reported value
+  navigationType?: string; // 'navigate' | 'reload' | 'back_forward' | 'prerender' | 'unknown'
 }
 ```
 
@@ -52,43 +50,82 @@ interface Metric {
 | LCP | < 2.5s | 2.5s - 4.0s | > 4.0s |
 | CLS | < 0.1 | 0.1 - 0.25 | > 0.25 |
 | INP | < 200ms | 200ms - 500ms | > 500ms |
-| FID | < 100ms | 100ms - 300ms | > 300ms |
+
+### Delivery: the vitals sink
+
+**Location:** `src/utils/vitalsSink.ts`
+
+`src/main.tsx` wires `reportWebVitals` to `defaultVitalsHandler(logger)`, which wraps `createVitalsSink().onMetric`. Behaviour:
+
+- **Off by default.** Without `VITE_VITALS_ENDPOINT` the sink is inactive: no network calls, no listeners beyond dev logging.
+- **Opt-in endpoint.** `VITE_VITALS_ENDPOINT` accepts an absolute `http(s)` URL or an app-relative `/path`. Anything else (e.g. `javascript:`, `//host`, credentials in the URL) is ignored with a dev warning and the sink stays disabled.
+- **Sampling.** `VITE_VITALS_SAMPLE_RATE` (default `0.1`, invalid values fall back to the default) is applied once per page load with `Math.random`. Unsampled pages never buffer or send.
+- **Batching.** Sampled metrics are buffered and sent as one JSON batch via `navigator.sendBeacon` when the page hides: `{ ts, nav?, metrics: [{ id, name, value, rating, delta, path }] }`. The flush is scheduled from a microtask queued on `visibilitychange -> hidden` / `pagehide`, which runs after `reportWebVitals` has finalised the same event, so finalised metrics are always included. Flushing an empty buffer is a no-op.
+- **Path normalisation.** Each metric records `location.pathname` with query strings and hashes stripped, route params matched against the patterns in `src/App.tsx` (e.g. `/vaults/:id`), and unknown segments reduced to `:param`, so payloads can never carry wallet addresses or other sensitive query parameters.
+- **Production silence.** Dev output goes through the shared `logger` (see `src/utils/logger.ts`), which is a no-op in production builds - production emits no console output for vitals.
+- **Never throws.** Failures in buffering, serialisation, the beacon itself, or sink setup are caught and logged; a broken setup yields an inert sink.
+
+To send vitals to your own collector, set the environment variables in `.env`:
+
+```bash
+VITE_VITALS_ENDPOINT=https://collector.example.com/vitals
+VITE_VITALS_SAMPLE_RATE=0.1
+```
+
+### Usage
+
+**In `src/main.tsx`:**
+
+```typescript
+import { reportWebVitals } from './utils/reportWebVitals';
+
+// Default: sink-backed (dev console + optional beacon)
+bootstrap({ /* onWebVital defaults to defaultVitalsHandler(logger) */ });
+
+// Custom reporter still supported
+bootstrap({
+  onWebVital: (metric) => myAnalytics.track('web_vital', metric),
+});
+```
 
 ### Design Principles
 
-1. **Opt-in Production Behavior** - No side effects when no reporter is provided
-2. **Error Isolation** - Callback errors never crash the application
+1. **Opt-in Production Behavior** - No side effects when no reporter or endpoint is provided
+2. **Error Isolation** - Callback and sink errors never crash the application
 3. **SSR-Safe** - Gracefully handles server-side rendering (window undefined)
 4. **Graceful Degradation** - Works with or without PerformanceObserver support
-5. **Zero External Dependencies** - Uses native Performance API only
+5. **Zero External Dependencies** - Uses native Performance API only; algorithms mirror the `web-vitals` reference implementation
 
 ### Edge Case Handling
 
 - **No callback provided** - Returns early, no observers created
-- **Callback throws** - Error logged to console, app continues running
+- **Callback throws** - Error logged, app continues; the metric is marked reported so it is not retried
 - **Missing PerformanceObserver** - Returns early, no metrics captured
 - **SSR environment** - Returns early when window is undefined
 - **Observer errors** - Individual observer failures don't affect other metrics
+- **No entry type support** - Unsupported types (e.g. `first-input`) are skipped; the remaining metrics still work
 
 ### Testing
 
-Tests are located in `src/utils/__tests__/reportWebVitals.test.ts` and cover:
-- Callback wiring with various inputs (undefined, null, non-function)
-- Error handling (callback throws, observer errors)
-- Environment handling (SSR, missing PerformanceObserver)
-- Multiple metrics scenario
-- Metric interface compliance
+Tests are located in:
+
+- `src/utils/__tests__/reportWebVitals.test.ts` - measurement and finalisation:
+  - Callback wiring with various inputs (undefined, null, non-function)
+  - Error handling (callback throws, observer errors)
+  - Environment handling (SSR, missing PerformanceObserver)
+  - INP grouping/p98 estimation, CLS session windows, LCP finalisation timing
+  - Exactly-once reporting on hide/pagehide and back/forward-cache resets
+  - End-to-end integration with the sink (beacon payload content)
+- `src/utils/__tests__/vitalsSink.test.ts` - delivery:
+  - Endpoint/rate resolution and validation fallbacks
+  - Sample rate gating with an injected RNG
+  - Batch payload shape, path normalisation, single-flush semantics
+  - Auto-flush on hide/pagehide, beacon failure isolation, dev logging via `logger`
 
 Run tests with:
 ```bash
 npm run test
 ```
-
-### Integration Points
-
-The web-vitals reporter is called from `src/main.tsx` during app initialization. This ensures metrics are captured from the initial page load and throughout the user session.
-
-For production deployments, replace the console.log reporter with your analytics service of choice (e.g., Google Analytics, DataDog, New Relic, or custom endpoint).
 
 ### Performance Impact
 
@@ -96,7 +133,7 @@ The reporter has minimal performance impact:
 - Uses native browser APIs with negligible overhead
 - Observers are passive and don't block rendering
 - Callback execution is asynchronous
-- No network calls unless explicitly added by the callback
+- No network calls unless `VITE_VITALS_ENDPOINT` is configured and the page is sampled
 
 ---
 

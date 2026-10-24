@@ -17,9 +17,8 @@ import {
   isValidCurrency,
   isValidIsoTimestamp,
 } from "../utils/vaultState";
-import { createSingleFlightRunner } from "../utils/singleFlight";
 import { logger } from "../utils/logger";
-import { timelineProgress } from "../utils/vaultLifecycle";
+import { vaultProgressPct } from "../utils/vaultLifecycle";
 import { validateVaultPreview, sanitizeActivity } from "../utils/dashboardValidation";
 
 // ── Mock Data ─────────────────────────────────────────────────────────────────
@@ -39,6 +38,7 @@ import {
   deriveDeadlines,
   sortActiveFirst,
 } from "../utils/dashboardDerive";
+import { useOnRecovered } from "../hooks/useOnRecovered";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -58,14 +58,13 @@ function toSafePreviews(loaded: Vault[]): VaultPreview[] {
       currency: v.currency,
       status: v.status as VaultStatus,
       deadline: v.deadline,
-      progressPct: timelineProgress(v.createdAt, v.deadline),
+      progressPct: vaultProgressPct(v),
     };
     const result = validateVaultPreview(preview);
     if (result.ok) {
       safe.push(preview);
     } else {
-      // eslint-disable-next-line no-console
-      console.warn("[Dashboard] dropped invalid vault preview", {
+      logger.warn("[Dashboard] dropped invalid vault preview", {
         id: v.id,
         reason: result.reason,
       });
@@ -441,6 +440,8 @@ export default function Dashboard() {
   const retryVaults = useCallback(() => {
     setRetryCount((c) => c + 1);
   }, []);
+
+  useOnRecovered(retryVaults);
 
   // INVARIANT: wallet-derived state is surfaced only in the "data" state AND
   // only for the wallet it was loaded for. Gating at render time means the
@@ -831,7 +832,7 @@ export default function Dashboard() {
         <div
           style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}
         >
-          <UpcomingDeadlines deadlines={safeDeadlines} />
+          <UpcomingDeadlines deadlines={safeDeadlines} vaults={shownFullVaults} />
 
           {/* Success Rate Chart (sparkline bars) */}
           <div

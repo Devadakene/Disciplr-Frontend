@@ -16,8 +16,11 @@
  *                  Store.ts re-exports.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import fc from "fast-check";
 
 import {
+  migratePreferenceState,
+  PREFERENCE_DEFAULTS,
   sanitizePreferenceFields,
   useNotification,
   useNotificationPreferences,
@@ -48,7 +51,8 @@ const VALID_PAYLOAD = {
   email: false,
   push: true,
   frequency: "2",
-  quietHours: "08:30",
+  quietHours: { enabled: true, start: "22:00", end: "07:00" },
+  vaultOverrides: { "v-101": true },
 };
 
 /**
@@ -349,13 +353,17 @@ describe("notification preferences — input validation (re-exported by Store)",
     ["null", null],
     ["a string", "nope"],
     ["an array", []],
-    ["a missing email", { push: true, frequency: "1", quietHours: "12:00" }],
+    ["a missing email", { push: true, frequency: "1", quietHours: { enabled: false, start: "22:00", end: "07:00" }, vaultOverrides: {} }],
     ["a non-boolean email", { ...VALID_PAYLOAD, email: "true" }],
     ["a non-boolean push", { ...VALID_PAYLOAD, push: 1 }],
     ["an out-of-range frequency", { ...VALID_PAYLOAD, frequency: "9" }],
     ["an empty frequency", { ...VALID_PAYLOAD, frequency: "" }],
-    ["a malformed quiet hour", { ...VALID_PAYLOAD, quietHours: "25:99" }],
-    ["a non-string quiet hour", { ...VALID_PAYLOAD, quietHours: 1200 }],
+    ["a malformed quiet hour", { ...VALID_PAYLOAD, quietHours: { enabled: true, start: "25:99", end: "07:00" } }],
+    ["an empty quiet-hours range", { ...VALID_PAYLOAD, quietHours: { enabled: true, start: "07:00", end: "07:00" } }],
+    ["a non-boolean quiet-hours enabled flag", { ...VALID_PAYLOAD, quietHours: { enabled: "yes", start: "22:00", end: "07:00" } }],
+    ["a non-boolean vault override", { ...VALID_PAYLOAD, vaultOverrides: { "v-101": "yes" } }],
+    ["a prototype-pollution vault id", { ...VALID_PAYLOAD, vaultOverrides: JSON.parse('{"__proto__":true}') }],
+    ["an oversized vault override map", { ...VALID_PAYLOAD, vaultOverrides: Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`v-${i}`, true])) }],
   ])("rejects %s", (_label, input) => {
     expect(sanitizePreferenceFields(input)).toBeNull();
   });
@@ -370,10 +378,39 @@ describe("notification preferences — input validation (re-exported by Store)",
 
   it("rejects a malformed quiet hour through the store gate", () => {
     expectBoundary(
-      () => useNotificationPreferences.getState().setQuietHours("99:99"),
+      () => useNotificationPreferences.getState().setQuietHours({ enabled: true, start: "99:99", end: "07:00" }),
       "TAMPERED_INPUT",
     );
-    expect(useNotificationPreferences.getState().quietHours).toBe("12:00");
+    expect(useNotificationPreferences.getState().quietHours).toEqual(PREFERENCE_DEFAULTS.quietHours);
+  });
+
+  it("migrates a v0 time string without losing the other preference fields", () => {
+    expect(migratePreferenceState({ ...VALID_PAYLOAD, quietHours: "21:00" }, 0)).toEqual({
+      ...VALID_PAYLOAD,
+      quietHours: { enabled: true, start: "21:00", end: "07:00" },
+      vaultOverrides: {},
+    });
+  });
+
+  it("restores all defaults on reset", () => {
+    useNotificationPreferences.getState().setQuietHours({ enabled: true, start: "23:00", end: "06:30" });
+    useNotificationPreferences.getState().setVaultOverride("v-101", true);
+    useNotificationPreferences.getState().setFrequency("4");
+    useNotificationPreferences.getState().reset();
+    expect(useNotificationPreferences.getState()).toMatchObject(PREFERENCE_DEFAULTS);
+  });
+
+  it("round-trips valid quiet-hours pairs through persistence unchanged", () => {
+    const time = fc.integer({ min: 0, max: 1439 }).map((minute) =>
+      `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`,
+    );
+    fc.assert(fc.property(time, time, (start, end) => {
+      if (start === end) return;
+      useNotificationPreferences.getState().setQuietHours({ enabled: true, start, end });
+      const persisted = JSON.parse(localStorage.getItem("notification-preferences")!);
+      const restored = sanitizePreferenceFields(persisted.state);
+      expect(restored?.quietHours).toEqual({ enabled: true, start, end });
+    }));
   });
 
   /**

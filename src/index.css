@@ -305,3 +305,12 @@ a:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Disable CSS transitions while the theme changes so colours don't animate */
+.theme-changing,
+.theme-changing *,
+.theme-changing *::before,
+.theme-changing *::after {
+  transition: none !important;
+}
+

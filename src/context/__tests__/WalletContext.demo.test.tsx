@@ -6,7 +6,7 @@ import {
   DEMO_ADDRESS,
   DEMO_MODE_KEY,
   WALLET_DISCONNECTED_KEY,
-  ACCOUNT_POLL_INTERVAL,
+  WALLET_WATCH_INTERVAL,
 } from '../WalletContext';
 import * as freighterApi from '@stellar/freighter-api';
 
@@ -16,6 +16,14 @@ vi.mock('@stellar/freighter-api', () => ({
   requestAccess: vi.fn(),
   getAddress: vi.fn(),
   getNetworkDetails: vi.fn().mockResolvedValue({ network: 'PUBLIC' }),
+  WatchWalletChanges: class {
+    timeout?: number;
+    watch = vi.fn();
+    stop = vi.fn();
+    constructor(timeout?: number) {
+      this.timeout = timeout;
+    }
+  },
 }));
 
 vi.mock('../../utils/horizon', () => ({
@@ -103,7 +111,7 @@ describe('WalletContext demo mode persistence', () => {
     renderProvider();
 
     await act(async () => {
-      vi.advanceTimersByTime(ACCOUNT_POLL_INTERVAL * 3);
+      vi.advanceTimersByTime(WALLET_WATCH_INTERVAL * 3);
     });
 
     expectDemoState();

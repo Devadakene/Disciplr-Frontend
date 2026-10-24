@@ -2,8 +2,11 @@ import { vi, describe, beforeEach, test, expect } from 'vitest';
 
 const walletState = vi.hoisted(() => ({
     connect: vi.fn(),
+    cancelConnect: vi.fn(),
+    connectDemo: vi.fn(),
     isConnecting: false,
     error: null as string | null,
+    address: null as string | null,
 }));
 
 vi.mock('@/context/WalletContext', () => ({
@@ -28,10 +31,14 @@ function renderModal(onClose = vi.fn()) {
 describe('WalletSelectionModal', () => {
     beforeEach(() => {
         walletState.connect = vi.fn().mockResolvedValue(true);
+        walletState.cancelConnect = vi.fn();
+        walletState.connectDemo = vi.fn();
         walletState.isConnecting = false;
         walletState.error = null;
+        walletState.address = null;
         telemetryMocks.recordWalletTelemetry.mockClear();
     });
+
 
     test('renders the title and Freighter option', () => {
         renderModal();
@@ -50,12 +57,12 @@ describe('WalletSelectionModal', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    test('disables the button and shows loader while isConnecting', () => {
+    test('keeps the Freighter action available while connecting so the user can recover', () => {
         walletState.isConnecting = true;
         renderModal();
 
         const btn = screen.getByText('Freighter').closest('button')!;
-        expect(btn).toBeDisabled();
+        expect(btn).not.toBeDisabled();
         expect(btn.querySelector('.loader')).toBeInTheDocument();
     });
 
@@ -223,5 +230,27 @@ describe('WalletSelectionModal', () => {
         });
 
         expect(onClose).not.toHaveBeenCalled();
+    });
+
+    test('calls cancelConnect and onClose when modal is closed during a connection attempt', () => {
+        walletState.isConnecting = true;
+        const { onClose } = renderModal();
+
+        // Click the X close button while connecting
+        const closeBtn = document.querySelector('.wallet-close-btn') as HTMLElement;
+        closeBtn.click();
+
+        expect(walletState.cancelConnect).toHaveBeenCalledTimes(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test('shows timeout error with retry hint and keeps Freighter button enabled', () => {
+        walletState.error = "Freighter didn't respond. Check the extension popup and try again.";
+        walletState.isConnecting = false;
+        renderModal();
+
+        expect(screen.getByText(/Freighter didn't respond/)).toBeInTheDocument();
+        const btn = screen.getByText('Freighter').closest('button')!;
+        expect(btn).not.toBeDisabled();
     });
 });

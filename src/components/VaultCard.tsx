@@ -8,6 +8,7 @@ import { StatusChip } from './StatusChip';
 import { deadlineUrgency, type UrgencyTier } from '../utils/vaultUrgency';
 import type { BadgeTone } from './Badge';
 import type { VaultStatus } from '../types/vault';
+import { formatUsdc } from '../utils/format';
 
 export type { VaultStatus };
 
@@ -92,7 +93,7 @@ const VaultCard = memo(function VaultCard({
             {name}
           </Text>
           <Text role="caption" as="div" style={{ color: 'var(--accent)', fontWeight: 700 }}>
-            {amount.toLocaleString()} {currency}
+            {formatUsdc(amount)} {currency}
           </Text>
           <Text role="caption" as="div" style={{ color: 'var(--muted)' }}>
             Deadline:{' '}

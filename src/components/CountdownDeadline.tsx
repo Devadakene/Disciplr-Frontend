@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { Text } from './Text';
+import { formatDateTime } from '../utils/format';
 
 export type DeadlineTone = 'normal' | 'urgent' | 'expired' | 'invalid';
 
@@ -28,13 +29,7 @@ export function timeRemaining(deadline: string, now: Date | number = Date.now())
   }
 
   const msRemaining = deadlineMs - nowMs;
-  const absoluteLabel = deadlineDate.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const absoluteLabel = formatDateTime(deadlineDate);
 
   if (msRemaining <= 0) {
     return {

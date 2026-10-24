@@ -2,8 +2,8 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import App from '../App'
 
-const routes = ['/', '/dashboard', '/vaults', '/transactions', '/docs', '/vaults/1', '/vaults/create', '/verifier', '/verifier/history', '/help', '/analytics', '/notifications', '/notifications/settings', '/nope']
-const protectedRoutes = ['/vaults/create', '/vaults/1', '/verifier/queue', '/verifier/queue/v1']
+const routes = ['/', '/dashboard', '/vaults', '/transactions', '/docs', '/vaults/1', '/vaults/1/transactions', '/vaults/create', '/verifier', '/verifier/history', '/help', '/analytics', '/notifications', '/notifications/settings', '/nope']
+const protectedRoutes = ['/vaults/create', '/verifier/queue', '/verifier/queue/v1']
 
 describe('smoke', () => {
   for (const r of routes) {

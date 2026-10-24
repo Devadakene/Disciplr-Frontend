@@ -132,11 +132,18 @@ describe('privacy invariants', () => {
 });
 
 describe('classifyConnectError', () => {
+  beforeEach(() => {
+    const buffer = getRecentWalletTelemetry() as WalletTelemetryEvent[];
+    buffer.length = 0;
+    resetWalletTelemetrySink();
+  });
+
   it('classifies known failure messages into stable codes', () => {
     expect(classifyConnectError('Wallet access denied.')).toBe('access_denied');
     expect(classifyConnectError('Failed to get wallet address.')).toBe('address_unavailable');
     expect(classifyConnectError('Address unavailable.')).toBe('address_unavailable');
     expect(classifyConnectError('Connection attempt timed out after 30000ms. Please retry.')).toBe('timeout');
+    expect(classifyConnectError('Freighter connection cancelled.')).toBe('cancelled');
   });
 
   it('falls back to wallet_error for unknown messages and unknown for missing ones', () => {
@@ -144,6 +151,34 @@ describe('classifyConnectError', () => {
     expect(classifyConnectError(null)).toBe('unknown');
     expect(classifyConnectError(undefined)).toBe('unknown');
     expect(classifyConnectError('')).toBe('unknown');
+  });
+
+  it('groups terminal outcomes by attempt and ensures a single outcome per attempt', () => {
+    const sink = vi.fn();
+    setWalletTelemetrySink(sink);
+    const attemptEvents = [
+      { event: 'wallet.connect.attempt', ts: 1, wallet: 'freighter' as const, attempt: 1 },
+      { event: 'wallet.connect.failure', ts: 2, wallet: 'freighter' as const, durationMs: 50, attempt: 1, errorCode: 'access_denied' as const },
+      { event: 'wallet.connect.attempt', ts: 3, wallet: 'freighter' as const, attempt: 2 },
+      { event: 'wallet.connect.timeout', ts: 4, wallet: 'freighter' as const, durationMs: 30000, timeoutMs: 30000, attempt: 2 },
+    ];
+
+    attemptEvents.forEach((event) => recordWalletTelemetry(event));
+
+    const eventsByAttempt = new Map<number, WalletTelemetryEvent[]>();
+    for (const event of getRecentWalletTelemetry()) {
+      if ('attempt' in event) {
+        const list = eventsByAttempt.get(event.attempt) ?? [];
+        list.push(event);
+        eventsByAttempt.set(event.attempt, list);
+      }
+    }
+
+    expect(eventsByAttempt.get(1)).toHaveLength(2);
+    expect(eventsByAttempt.get(2)).toHaveLength(2);
+    expect(eventsByAttempt.get(1)?.some((event) => event.event === 'wallet.connect.failure')).toBe(true);
+    expect(eventsByAttempt.get(2)?.some((event) => event.event === 'wallet.connect.timeout')).toBe(true);
+    expect(sink).toHaveBeenCalledTimes(4);
   });
 });
 

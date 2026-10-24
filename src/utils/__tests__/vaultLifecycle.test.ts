@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { vaultLifecycleStages, timelineProgress } from '../vaultLifecycle';
+import { vaultLifecycleStages, timelineProgress, vaultProgressPct } from '../vaultLifecycle';
 
 const states = (status: string) =>
   vaultLifecycleStages(status).map((stage) => [stage.id, stage.state, stage.label]);
@@ -106,6 +106,69 @@ describe('timelineProgress', () => {
   it('returns 0 for invalid date strings', () => {
     expect(timelineProgress('invalid-date', deadline)).toBe(0);
     expect(timelineProgress(created, 'invalid-date')).toBe(0);
+  });
+});
+
+describe('vaultProgressPct', () => {
+  const created = '2026-01-01T00:00:00.000Z';
+  const deadline = '2026-01-11T00:00:00.000Z';
+  const halfwayMs = new Date(created).getTime() + 5 * 24 * 60 * 60 * 1000;
+
+  it('uses timelineProgress when milestones array is empty or missing', () => {
+    expect(vaultProgressPct({ createdAt: created, deadline }, halfwayMs)).toBe(50);
+    expect(vaultProgressPct({ createdAt: created, deadline, milestones: [] }, halfwayMs)).toBe(50);
+  });
+
+  it('computes percentage from validated milestones when milestones exist', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'validated' as const },
+        { status: 'pending' as const },
+        { status: 'pending' as const },
+        { status: 'pending' as const },
+      ],
+    };
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(25);
+  });
+
+  it('reports 100% when all milestones are validated', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'validated' as const },
+        { status: 'validated' as const },
+      ],
+    };
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(100);
+  });
+
+  it('correctly handles failed milestones (only validated milestones count towards progress)', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'validated' as const },
+        { status: 'failed' as const },
+        { status: 'pending' as const },
+      ],
+    };
+    // 1 / 3 = 33%
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(33);
+  });
+
+  it('reports 0% when no milestones are validated', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'pending' as const },
+        { status: 'failed' as const },
+      ],
+    };
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(0);
   });
 });
 

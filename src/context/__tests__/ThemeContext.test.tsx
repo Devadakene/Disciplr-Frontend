@@ -26,6 +26,9 @@ describe('ThemeContext safe storage', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     } as unknown as MediaQueryList));
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('style');
     vi.spyOn(Storage.prototype, 'getItem');
     vi.spyOn(Storage.prototype, 'setItem');
   });
@@ -429,3 +432,149 @@ describe('ThemeContext safeSetItem type safety (issue #1266)', () => {
     expect(() => fireEvent.click(screen.getByText('Set System'))).not.toThrow();
   });
 });
+
+describe('ThemeContext pre-paint & cross-tab sync', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList));
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('style');
+    const existingMetas = document.querySelectorAll('meta[name="theme-color"]');
+    existingMetas.forEach((m) => m.remove());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('initial state taken from data-theme when no stored preference', () => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+    expect(screen.getByTestId('theme')).toHaveTextContent('dark');
+  });
+
+  test('does not write to localStorage on initial mount', () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(setItemSpy).not.toHaveBeenCalled();
+  });
+
+  test('dispatching a StorageEvent updates the preference and theme', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'disciplr-theme',
+          newValue: 'dark',
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+    expect(screen.getByTestId('theme')).toHaveTextContent('dark');
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+  });
+
+  test('dispatching a StorageEvent with null resets preference to system', () => {
+    localStorage.setItem('disciplr-theme', 'dark');
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'disciplr-theme',
+          newValue: null,
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('an invalid StorageEvent value is ignored', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'disciplr-theme',
+          newValue: 'invalid-theme-value',
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('an unrelated StorageEvent key is ignored', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'other-key',
+          newValue: 'dark',
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('the theme-color meta tag is updated when resolved theme changes', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+
+    // Initial light
+    const meta = document.querySelector('meta[name="theme-color"]:not([media])');
+    expect(meta).not.toBeNull();
+    expect(meta).toHaveAttribute('content', '#F9FAFB');
+
+    // Switch to dark
+    fireEvent.click(screen.getByText('Set Dark'));
+    expect(meta).toHaveAttribute('content', '#111827');
+
+    // Switch to light
+    fireEvent.click(screen.getByText('Set Light'));
+    expect(meta).toHaveAttribute('content', '#F9FAFB');
+  });
+});
+

@@ -11,7 +11,7 @@ interface WalletSelectionModalProps {
 }
 
 export function WalletSelectionModal({ onClose }: WalletSelectionModalProps) {
-    const { connect, connectDemo, isConnecting, error, address } = useWallet();
+    const { connect, cancelConnect, connectDemo, isConnecting, error, address } = useWallet();
     const isConnected = address !== null;
 
     const isMounted = useRef(true);
@@ -25,11 +25,7 @@ export function WalletSelectionModal({ onClose }: WalletSelectionModalProps) {
     }, []);
 
     const handleConnect = async () => {
-        // Bounded interaction: ignore clicks while a connect attempt is
-        // pending so double-clicks never stack Freighter prompts. The
-        // WalletContext additionally single-flights connect() itself, so this
-        // guard and the context guard together cap concurrent prompts at one.
-        if (connectPending.current || isConnecting) {
+        if (connectPending.current) {
             recordWalletTelemetry({
                 event: 'wallet.connect.ignored',
                 ts: Date.now(),
@@ -38,17 +34,14 @@ export function WalletSelectionModal({ onClose }: WalletSelectionModalProps) {
             });
             return;
         }
+
         connectPending.current = true;
         try {
             const connected = await connect();
-            // Only close modal if connection succeeded (connect() returned true).
-            // On failed connection attempts (Freighter not installed, user rejects access,
-            // network error), leave the modal open so the error message remains visible.
             if (isMounted.current && Boolean(connected)) {
                 onClose();
             }
         } catch {
-            // Keep modal open so error remains visible if connect() unexpectedly rejects
             return;
         } finally {
             if (isMounted.current) {
@@ -57,17 +50,24 @@ export function WalletSelectionModal({ onClose }: WalletSelectionModalProps) {
         }
     };
 
+    const handleClose = () => {
+        if (isConnecting) {
+            cancelConnect();
+        }
+        onClose();
+    };
+
     return (
         <Modal
             isOpen={true}
-            onClose={onClose}
+            onClose={handleClose}
             overlayClassName="wallet-modal-overlay"
             contentClassName="wallet-modal-content"
             ariaLabelledBy="wallet-modal-title"
         >
             <div className="wallet-modal-header">
                 <h2 id="wallet-modal-title" className="wallet-modal-title">Connect Wallet</h2>
-                <button className="wallet-close-btn" onClick={onClose}>
+                <button className="wallet-close-btn" onClick={handleClose}>
                     <X size={20} />
                 </button>
             </div>
@@ -82,7 +82,7 @@ export function WalletSelectionModal({ onClose }: WalletSelectionModalProps) {
                 <button
                     className="wallet-option"
                     onClick={handleConnect}
-                    disabled={isConnecting}
+                    aria-busy={connectPending.current || isConnecting}
                 >
                     <div className="wallet-option-info">
                         <div className="wallet-icon">

@@ -18,6 +18,10 @@ interface ImportMetaEnv {
   readonly VITE_APP_ENV: string | undefined;
   /** Feature flag gate for experimental UI. */
   readonly VITE_FEATURE_FLAGS: string | undefined;
+  /** Opt-in web-vitals collection endpoint; unset disables sending. */
+  readonly VITE_VITALS_ENDPOINT: string | undefined;
+  /** Web-vitals sampling rate (0..1); defaults to 0.1 when unset/invalid. */
+  readonly VITE_VITALS_SAMPLE_RATE: string | undefined;
 }
 
 interface ImportMeta {

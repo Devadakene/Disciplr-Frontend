@@ -11,6 +11,7 @@ import {
   isValidCurrency,
   isValidTxHash,
 } from '../utils/vaultState';
+import { formatDateTime, formatUsdc } from '../utils/format';
 import './FundReleaseStatus.css';
 
 export type FundReleaseOutcome = 'released' | 'redirected' | 'pending';
@@ -72,13 +73,7 @@ function formatTimestamp(timestamp?: string): string {
     return 'Unknown';
   }
 
-  return parsed.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTime(parsed);
 }
 
 function checkInvariants(outcome: FundReleaseOutcome, transaction?: SettlementTransaction): Error | null {
@@ -134,7 +129,7 @@ export function FundReleaseStatus({
 
   const displayAmount =
     typeof amount === 'number' && Number.isFinite(amount) && amount >= 0
-      ? amount.toLocaleString()
+      ? formatUsdc(amount)
       : 'Unavailable';
   const displayCurrency = isValidCurrency(currency) ? currency : 'UNKNOWN';
   const safeDestination =

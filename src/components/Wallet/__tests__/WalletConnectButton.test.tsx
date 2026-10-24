@@ -64,13 +64,14 @@ describe('WalletConnectButton', () => {
         expect(screen.getByTestId('wallet-selection-modal')).toBeInTheDocument();
     });
 
-    test('renders connecting state correctly', () => {
+    test('keeps connecting state recoverable by opening the wallet modal', () => {
         walletState.isConnecting = true;
         render(<WalletConnectButton />);
         const btn = screen.getByText('Connecting...').closest('button');
         expect(btn).toBeInTheDocument();
-        expect(btn).toBeDisabled();
         expect(btn).toHaveClass('connecting');
+        fireEvent.click(btn!);
+        expect(screen.getByTestId('wallet-selection-modal')).toBeInTheDocument();
     });
 
     test('renders error state correctly and logs telemetry', () => {

@@ -20,7 +20,7 @@ export default [
       ecmaVersion: 2020,
       globals: globals.browser,
       parserOptions: {
-        eccmaFeatures: {
+        ecmaFeatures: {
           jsx: true,
         },
       },
@@ -47,6 +47,24 @@ export default [
     },
   },
   {
+    // Disallow direct console calls in application source code
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
+    // Override no-console for the shared logger implementation and tests
+    files: [
+      'src/utils/logger.ts',
+      'src/**/*.test.{js,jsx,ts,tsx}',
+      'src/**/__tests__/**/*.{js,jsx,ts,tsx}',
+    ],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
     // Test files commonly need `any` to type mocks, spies, and fixture
     // payloads without fighting the type system. Keep the stricter rule for
     // application source code.
@@ -55,4 +73,4 @@ export default [
       '@typescript-eslint/no-explicit-any': 'off',
     },
   },
-]
+];

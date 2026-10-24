@@ -39,6 +39,7 @@ import type { Milestone, MilestoneStatus, Vault, VaultStatus } from "../types/va
 import { isValidStellarAddress } from "./stellarAddress";
 import { isNetworkMismatch } from "./networkMismatch";
 import { isApiEnabled } from "../services/api";
+import { useConnectivityStore } from "../services/connectivity";
 
 export { isValidStellarAddress };
 
@@ -640,6 +641,15 @@ export function evalVaultActionAuth({
     reasons.push("Connect your wallet to authorize this action.");
   } else if (!isPlausibleStellarAddress(walletAddress)) {
     reasons.push("The connected wallet address is invalid.");
+  }
+
+  if (isApiEnabled()) {
+    const connStatus = useConnectivityStore.getState().status;
+    if (connStatus === 'offline') {
+      reasons.push("You are currently offline. Reconnect to perform actions.");
+    } else if (connStatus === 'api-down') {
+      reasons.push("The Disciplr service is currently unavailable. Actions are disabled.");
+    }
   }
 
   if (isNetworkMismatch(walletNetwork, expectedNetwork)) {

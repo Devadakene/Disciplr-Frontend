@@ -12,6 +12,7 @@ describe("CreateVaultReview", () => {
 
     render(
       <CreateVaultReview
+        name="Review vault"
         amount="100.1234567"
         deadline="2030-01-01T00:00"
         successAddress={successAddress}
@@ -34,7 +35,7 @@ describe("CreateVaultReview", () => {
       screen.getByRole("heading", { name: /review vault details/i }),
     ).toBeInTheDocument();
     expect(screen.getByText("100.1234567")).toBeInTheDocument();
-    expect(screen.getByText("2030-01-01T00:00")).toBeInTheDocument();
+    expect(screen.getByText(/UTC/)).toBeInTheDocument();
     expect(screen.getByTitle(successAddress)).toBeInTheDocument();
     expect(screen.getByTitle(failureAddress)).toBeInTheDocument();
     expect(
@@ -59,10 +60,12 @@ describe("CreateVaultReview", () => {
   it("keeps the legacy single milestone prop rendering", () => {
     render(
       <CreateVaultReview
+        name="Review vault"
         amount="100"
         deadline="2030-01-01T00:00"
         successAddress={ACCOUNT_A}
         failureAddress={ACCOUNT_B}
+        verifierAddress={ACCOUNT_C}
         milestone="Deliverables approved"
       />,
     );
@@ -74,10 +77,12 @@ describe("CreateVaultReview", () => {
   it("disables buttons and sets aria-disabled and aria-busy when isSubmitting is true", () => {
     render(
       <CreateVaultReview
+        name="Review vault"
         amount="100"
         deadline="2030-01-01T00:00"
         successAddress={ACCOUNT_A}
         failureAddress={ACCOUNT_B}
+        verifierAddress={ACCOUNT_C}
         isSubmitting={true}
       />,
     );
@@ -97,10 +102,12 @@ describe("CreateVaultReview", () => {
     const errorMsg = "Wrong network";
     render(
       <CreateVaultReview
+        name="Review vault"
         amount="100"
         deadline="2030-01-01T00:00"
         successAddress={ACCOUNT_A}
         failureAddress={ACCOUNT_B}
+        verifierAddress={ACCOUNT_C}
         error={errorMsg}
       />,
     );
@@ -112,10 +119,12 @@ describe("CreateVaultReview", () => {
   it("renders invariant error when required data is missing", () => {
     render(
       <CreateVaultReview
+        name=""
         amount=""
         deadline=""
         successAddress=""
         failureAddress=""
+        verifierAddress=""
       />
     );
 
@@ -134,10 +143,12 @@ describe("CreateVaultReview", () => {
     
     render(
       <CreateVaultReview
+        name="Review vault"
         amount="100"
         deadline="2030-01-01T00:00"
         successAddress={ACCOUNT_A}
         failureAddress={ACCOUNT_B}
+        verifierAddress={ACCOUNT_C}
         onConfirm={onConfirm}
         onBack={onBack}
       />

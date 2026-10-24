@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
-import { vaults } from "@/components/Notification/exampleNotification/example";
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text } from "@/components/Text";
 import { Switch } from "../components/Switch";
 import { useNotificationPreferences } from "../Zustand/Store";
-import { isValidQuietTime, isValidQuietHoursRange, isQuietHoursActive } from "../utils/quietHours";
+import { useWallet } from "../context/WalletContext";
+import { listVaults } from "../services/vaultService";
+import type { Vault } from "../types/vault";
+import { isValidQuietHoursRange, isQuietHoursActive } from "../utils/quietHours";
 
 
 // Allowed notification frequency values. Anything outside this set is rejected
@@ -15,6 +17,7 @@ const isAllowedFrequency = (value: unknown): value is Frequency =>
   typeof value === "string" && (ALLOWED_FREQUENCIES as readonly string[]).includes(value);
 
 export default function NotificationSettings() {
+  const { address } = useWallet();
   const {
     email: emailNotification,
     push: pushNotification,
@@ -24,6 +27,9 @@ export default function NotificationSettings() {
     setPush: setPushNotification,
     setFrequency,
     setQuietHours,
+    vaultOverrides,
+    setVaultOverride,
+    pruneVaultOverrides,
     reset,
   } = useNotificationPreferences();
 
@@ -33,42 +39,48 @@ export default function NotificationSettings() {
   const safeFrequency: Frequency = isAllowedFrequency(frequency) ? frequency : "1";
   const frequencyIsValid = isAllowedFrequency(frequency);
 
-  // Determine whether the current time falls within the quiet hour window.
-  // quietHours is a single "HH:MM" boundary. Quiet is considered active if
-  // the current hour:minute matches or is past the stored quiet-hours value.
-  const [quietStartValue, setQuietStartValue] = useState<string>(isValidQuietTime(quietHours) ? quietHours : "22:00");
-  const [quietEndValue, setQuietEndValue] = useState<string>("07:00");
+  const [quietDraft, setQuietDraft] = useState<{ start: string; end: string } | null>(null);
+  const quietStartValue = quietDraft?.start ?? quietHours.start;
+  const quietEndValue = quietDraft?.end ?? quietHours.end;
   const quietRangeIsValid = isValidQuietHoursRange(quietStartValue, quietEndValue);
-  const quietHoursValid = isValidQuietTime(quietHours);
+  useEffect(() => {
+    setQuietDraft(null);
+  }, [quietHours.start, quietHours.end]);
   const quietHoursActive = useMemo(
-    () => isQuietHoursActive(new Date(), quietStartValue, quietEndValue),
-    [quietStartValue, quietEndValue]
+    () => quietHours.enabled && isQuietHoursActive(new Date(), quietStartValue, quietEndValue),
+    [quietHours.enabled, quietStartValue, quietEndValue]
   );
 
   function updateQuietRange(start: string, end: string) {
-    setQuietStartValue(start);
-    setQuietEndValue(end);
+    setQuietDraft({ start, end });
     if (isValidQuietHoursRange(start, end)) {
-      setQuietHours(start);
+      setQuietHours({ ...quietHours, start, end });
+      setQuietDraft(null);
     }
   }
 
-  // Per-vault notification toggles (keyed by vault name)
-  const [vaultToggles, setVaultToggles] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(vaults.map((v) => [v.name, false]))
-  );
+  const [vaults, setVaults] = useState<Vault[]>([]);
+  const [vaultsLoading, setVaultsLoading] = useState(true);
+  const [vaultsError, setVaultsError] = useState(false);
 
-  // Only allow toggles for vaults that are actually rendered. This prevents
-  // arbitrary keys from being injected into state via crafted events.
-  const knownVaultNames = useMemo(() => new Set(vaults.map((v) => v.name)), []);
-
-  const handleVaultToggle = useCallback(
-    (name: string, checked: boolean) => {
-      if (!knownVaultNames.has(name)) return;
-      setVaultToggles((prev) => ({ ...prev, [name]: checked }));
-    },
-    [knownVaultNames]
-  );
+  useEffect(() => {
+    let active = true;
+    setVaultsLoading(true);
+    setVaultsError(false);
+    listVaults().then((items) => {
+      if (!active) return;
+      pruneVaultOverrides(items.map((vault) => vault.id));
+      setVaults(items.filter((vault) =>
+        !address || vault.creatorAddress === address || vault.verifierAddress === address,
+      ));
+      setVaultsLoading(false);
+    }).catch(() => {
+      if (!active) return;
+      setVaultsError(true);
+      setVaultsLoading(false);
+    });
+    return () => { active = false; };
+  }, [address, pruneVaultOverrides]);
 
   const handleFrequencyChange = useCallback(
     (value: string) => {
@@ -77,6 +89,11 @@ export default function NotificationSettings() {
     },
     [setFrequency]
   );
+
+  function handleReset() {
+    setQuietDraft(null);
+    reset();
+  }
 
   return (
     <>
@@ -136,6 +153,11 @@ export default function NotificationSettings() {
               <Text role="body" as="span">
                 Quiet Hours
               </Text>
+              <Switch
+                label="Enable Quiet Hours"
+                checked={quietHours.enabled}
+                onChange={(enabled) => setQuietHours({ ...quietHours, enabled })}
+              />
               <span
                 className={`notification-settings-badge ${
                   quietHoursActive
@@ -172,12 +194,17 @@ export default function NotificationSettings() {
                   onChange={(e) => updateQuietRange(quietStartValue, e.target.value)}
                 />
               </label>
+              {!quietRangeIsValid && (
+                <p role="alert" className="mt-2 text-sm text-red-600">
+                  Start and end times must be different.
+                </p>
+              )}
             </div>
           </div>
           <div className="flex justify-end items-center mt-5">
             <button
               className="px-4 py-2 font-medium rounded transition notification-settings-reset"
-              onClick={reset}
+              onClick={handleReset}
             >
               Reset Preferences
             </button>
@@ -190,10 +217,15 @@ export default function NotificationSettings() {
         style={{ zIndex: 'var(--z-index-base)' }}
       >
         <Text role="title" as="h2">Vault Notifications</Text>
-        {vaults.map((v) => (
+        {vaultsLoading && <p role="status" className="mt-5">Loading vaults...</p>}
+        {vaultsError && <p role="alert" className="mt-5">Vaults could not be loaded.</p>}
+        {!vaultsLoading && !vaultsError && vaults.length === 0 && (
+          <p className="mt-5">No vaults found.</p>
+        )}
+        {!vaultsLoading && !vaultsError && vaults.map((v) => (
           <div
             className="grid grid-cols-2 justify-center items-center mt-5"
-            key={v.name}
+            key={v.id}
           >
             <Text role="body" as="p">
               {v.name}
@@ -201,8 +233,8 @@ export default function NotificationSettings() {
             <div className="flex flex-col items-end justify-end gap-4">
               <Switch
                 label={`${v.name} notifications`}
-                checked={vaultToggles[v.name] ?? false}
-                onChange={(checked) => handleVaultToggle(v.name, checked)}
+                checked={vaultOverrides[v.id] ?? false}
+                onChange={(checked) => setVaultOverride(v.id, checked)}
               />
             </div>
           </div>

@@ -36,7 +36,7 @@ const NUMERIC_PATTERN = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
  * treat a null value as "no goal set" rather than as zero.
  */
 export function parseGoalInput(raw: string, { min, max }: GoalBounds): GoalParseResult {
-  const rangeMessage = `Enter a value between ${min.toLocaleString()} and ${max.toLocaleString()}.`
+  const rangeMessage = `Enter a value between ${min} and ${max}.`
   const trimmed = raw.trim()
   if (trimmed === '') return { value: null, error: 'Enter a target value.' }
   if (!NUMERIC_PATTERN.test(trimmed)) return { value: null, error: rangeMessage }
