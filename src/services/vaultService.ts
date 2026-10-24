@@ -13,6 +13,7 @@
 import type { Vault, VaultTransaction, Milestone } from "../types/vault";
 import { MASTER_VAULTS } from "../fixtures/vaults";
 import { MASTER_ACTIVITY } from "../fixtures/transactions";
+import { cached, invalidate, type CacheOptions } from "./queryCache";
 import {
   isValidVaultRouteId,
   isValidStellarAddress,
@@ -30,6 +31,11 @@ import {
   apiValidateNextMilestone,
   apiFailVault,
   apiListActivity,
+  apiListTransactions,
+  apiStats,
+  buildVaultQuery,
+  type ApiStats,
+  type VaultFilter,
 } from "./api";
 import {
   getDemoStore,
@@ -40,7 +46,6 @@ import {
   mergeDemoActivity,
   isDemoId,
 } from "./demoStore";
-import { cached, invalidate, type CacheOptions } from "./queryCache";
 
 /**
  * Drop cached reads affected by a vault write. Call after any successful
@@ -49,6 +54,7 @@ import { cached, invalidate, type CacheOptions } from "./queryCache";
 export function invalidateVaultCaches(id?: string): void {
   invalidate("vaults");
   invalidate("activity");
+  invalidate("stats");
   invalidate(id === undefined ? "vault:" : `vault:${id}`);
 }
 
@@ -95,24 +101,92 @@ export function isDemoModeActive(): boolean {
 // when the real backend lands. Page components depend solely on the
 // Promise-based interface below and will need zero changes.
 
+export type { VaultFilter } from "./api";
+
+/** Offline equivalent of the API's `?creator=&status=` query, for fixtures. */
+export function filterVaults(vaults: Vault[], filter?: VaultFilter): Vault[] {
+  if (!filter?.creator && !filter?.status) return vaults;
+  return vaults.filter(
+    (v) =>
+      (!filter.creator || v.creatorAddress === filter.creator) &&
+      (!filter.status || v.status === filter.status),
+  );
+}
+
 /**
- * Return all vaults.
+ * Return vaults, optionally narrowed by creator and/or status. The filter is
+ * sent to the API (`GET /vaults?creator=`) and applied locally for fixtures.
  * In demo mode, live reads (or mock data) are merged with demo overlay vaults.
  *
  * SEAM → replace with: Horizon account fetch + Soroban contract reads.
  */
-export async function listVaults(options?: CacheOptions): Promise<Vault[]> {
+export async function listVaults(
+  filter?: VaultFilter,
+  options?: CacheOptions,
+): Promise<Vault[]> {
   const baseVaults = await cached(
-    "vaults",
-    async () => (isApiEnabled() ? apiListVaults() : Object.values(MASTER_VAULTS)),
+    `vaults${buildVaultQuery(filter)}`,
+    async () => {
+      if (isApiEnabled()) return apiListVaults(filter);
+      return filterVaults(Object.values(MASTER_VAULTS), filter);
+    },
     options,
   );
 
   // The demo overlay is local and never cached, so demo writes show up at once.
   if (demoModeActive) {
-    return mergeDemoVaults(baseVaults);
+    return filterVaults(mergeDemoVaults(baseVaults), filter);
   }
   return baseVaults;
+}
+
+/** Summary stats scoped to a creator (`GET /stats?creator=`); null offline. */
+export async function getStats(
+  { creator }: { creator: string },
+  options?: CacheOptions,
+): Promise<ApiStats | null> {
+  if (!isApiEnabled()) return null;
+  return cached(`stats${buildVaultQuery({ creator })}`, () => apiStats(creator), options);
+}
+
+/** A raw vault transaction tagged with the vault it belongs to. */
+export interface VaultTxRecord {
+  id: string;
+  type: string;
+  vaultId: string;
+  amount: number;
+  timestamp: string;
+}
+
+/**
+ * Transactions belonging to the given vaults only. With the API this reads
+ * `GET /transactions` and filters to the vault ids; offline it reads the
+ * transactions embedded in the vaults.
+ */
+export async function listTransactionsForVaults(vaults: Vault[]): Promise<VaultTxRecord[]> {
+  const ids = new Set(vaults.map((v) => v.id));
+  if (ids.size === 0) return [];
+  if (isApiEnabled()) {
+    const all = await apiListTransactions();
+    return all
+      .filter((a) => ids.has(a.vaultId))
+      .map((a) => ({
+        id: a.id,
+        type: a.type,
+        vaultId: a.vaultId,
+        amount: Number(a.amount),
+        timestamp: a.createdAt,
+      }));
+  }
+  return vaults.flatMap((v) =>
+    (v.transactions ?? []).map((t) => ({
+      id: t.id,
+      type: t.type,
+      vaultId: v.id,
+      amount: t.amount ?? 0,
+      timestamp: t.timestamp,
+    })),
+  );
 }
 
 /**

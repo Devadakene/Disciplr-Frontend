@@ -25,7 +25,7 @@ export interface ApiVault {
   milestones: ApiMilestone[]; activity?: ApiActivity[];
 }
 
-interface ApiActivity { id: string; type: string; vaultId: string; amount: string; status: string; hash: string; memo: string; createdAt: string }
+export interface ApiActivity { id: string; type: string; vaultId: string; amount: string; status: string; hash: string; memo: string; createdAt: string }
 
 import { useConnectivityStore } from "./connectivity";
 
@@ -74,6 +74,7 @@ export function toVault(v: ApiVault): Vault {
     description: `${formatUsdc(m.amount)} USDC, due ${formatDate(m.dueDate)}`,
     criteria: m.title,
     status: m.status === "completed" ? "validated" : m.status === "failed" ? "failed" : "pending",
+    dueDate: m.dueDate,
     ...(m.status === "completed" ? { validatedAt: v.updatedAt || v.createdAt } : {}),
   }));
   return {
@@ -94,9 +95,25 @@ export function toVault(v: ApiVault): Vault {
   };
 }
 
-export const apiListVaults = async (): Promise<Vault[]> => {
+export interface VaultFilter { creator?: string; status?: string }
+
+/** Builds `?creator=..&status=..` with every value URI-encoded; empty when no filter is set. */
+export function buildVaultQuery(filter?: VaultFilter): string {
+  const parts: string[] = [];
+  if (filter?.creator) parts.push(`creator=${encodeURIComponent(filter.creator)}`);
+  if (filter?.status) parts.push(`status=${encodeURIComponent(filter.status)}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
+export const apiListVaults = async (filter?: VaultFilter): Promise<Vault[]> => {
   if (!isApiEnabled()) throw new ApiError("API not configured", 0);
-  return (await request<ApiVault[]>("/vaults")).map(toVault);
+  return (await request<ApiVault[]>(`/vaults${buildVaultQuery(filter)}`)).map(toVault);
+};
+
+/** Raw `/transactions` feed (all vaults); callers filter to the vaults they own. */
+export const apiListTransactions = (): Promise<ApiActivity[]> => {
+  if (!isApiEnabled()) throw new ApiError("API not configured", 0);
+  return request<ApiActivity[]>("/transactions");
 };
 
 export async function apiGetVault(id: string): Promise<Vault | undefined> {
@@ -200,10 +217,12 @@ export async function apiListActivity(options: ListActivityOptions = {}): Promis
   });
 }
 
-export async function apiStats(): Promise<{
+export interface ApiStats {
   totalVaults: number; active: number; completed: number; failed: number;
   totalLocked: number; totalReleased: number; totalRedirected: number; successRate: number | null;
-}> {
+}
+
+export async function apiStats(creator?: string): Promise<ApiStats> {
   if (!isApiEnabled()) throw new ApiError("API not configured", 0);
-  return request("/stats");
+  return request(`/stats${buildVaultQuery({ creator })}`);
 }
