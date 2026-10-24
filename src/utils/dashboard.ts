@@ -1,5 +1,6 @@
 import type { VaultStatus, Vault } from "../types/vault";
 import { formatRelativeTime } from "./relativeTime";
+import { formatUsdc, formatDate } from "./format";
 
 export type { VaultStatus };
 
@@ -163,7 +164,7 @@ export function formatSummary(summary: DashboardSummary) {
     completionRate: Number.isFinite(summary?.completionRate) ? summary.completionRate : 0,
   };
   return {
-    totalLocked: `$${safe.totalLocked.toLocaleString()}`,
+    totalLocked: `$${formatUsdc(safe.totalLocked)}`,
     activeVaults: String(safe.activeVaults),
     pendingMilestones: String(safe.pendingMilestones),
     completionRate: `${safe.completionRate}%`,
@@ -194,8 +195,8 @@ export function processDeadlines(
         daysRemaining: days,
         urgencyColor: color,
         formattedDays: days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`,
-        formattedAmount: `${amount.toLocaleString()} USDC`,
-        formattedDate: new Date(d.deadline).toLocaleDateString("en-US", {
+        formattedAmount: `${formatUsdc(amount)} USDC`,
+        formattedDate: formatDate(d.deadline, {
           month: "short",
           day: "numeric",
         }),
@@ -225,7 +226,7 @@ export function processActivity(
         ...a,
         amount,
         formattedAmount:
-          amount != null ? `${amount.toLocaleString()} USDC` : undefined,
+          amount != null ? `${formatUsdc(amount)} USDC` : undefined,
         relativeTime: relativeTime(a.timestamp, now),
       };
     });

@@ -9,11 +9,14 @@ export type AnalyticsRow = {
 };
 
 const TASK_HEADERS: string[] = ['ID', 'Status', 'Vault Name', 'Owner', 'Amount', 'Deadline', 'Milestone', 'Notes'];
-const TX_HEADERS: string[] = ['ID', 'Type', 'Vault', 'Amount (XLM)', 'Fee (XLM)', 'Status', 'Timestamp', 'Hash', 'Block', 'From', 'To', 'Memo'];
+const TX_HEADERS: string[] = ['ID', 'Type', 'Vault', 'Amount (USDC)', 'Fee (USDC)', 'Status', 'Timestamp', 'Hash', 'Block', 'From', 'To', 'Memo'];
 const ANALYTICS_HEADERS: string[] = ['Period', 'Success %', 'Failed %', 'Capital (USDC)', 'Milestones'];
 
 /** Safe placeholder for amount/fee cells that are not finite numbers after normalization. */
 export const NON_FINITE_NUMERIC_PLACEHOLDER = '';
+
+/** Placeholder for optional cells (fee, block) the data source did not provide. */
+export const MISSING_VALUE_PLACEHOLDER = '\u2014';
 
 /**
  * Normalizes a numeric CSV cell to a canonical dot-decimal, ungrouped string.
@@ -83,11 +86,11 @@ function txToRow(tx: Transaction): string {
     tx.type,
     tx.vault,
     normalizeNumericCell(tx.amount),
-    normalizeNumericCell(tx.fee),
+    tx.fee == null ? MISSING_VALUE_PLACEHOLDER : normalizeNumericCell(tx.fee),
     tx.status,
     tx.timestamp instanceof Date ? tx.timestamp.toISOString() : String(tx.timestamp),
     tx.hash,
-    String(tx.block),
+    tx.block == null ? MISSING_VALUE_PLACEHOLDER : String(tx.block),
     tx.from,
     tx.to,
     tx.memo,

@@ -16,6 +16,7 @@ describe('vaultPrefill utils', () => {
       createdAt: '2023-01-01T00:00:00Z',
       deadline: '2023-12-31T00:00:00Z',
       creatorAddress: '0x123',
+      verifierAddress: '0xverifier',
       successAddress: '0xabc',
       failureAddress: '0xdef',
       contractAddress: '0xcontract',
@@ -38,9 +39,11 @@ describe('vaultPrefill utils', () => {
       createVaultPrefill: {
         sourceVaultId: 'vault-123',
         sourceVaultName: 'Test Vault',
+        name: 'Test Vault (copy)',
         amount: '100',
         successAddress: '0xabc',
         failureAddress: '0xdef',
+        verifierAddress: '0xverifier',
         milestones: [
           {
             title: 'Milestone 1',

@@ -21,6 +21,7 @@ import type { ChartLegendEntry } from '../components/ChartLegend'
 import { toCsv, downloadCsv } from '../utils/csv'
 import { analyticsPeriodData, prevPeriodData, vaultStatusData, milestoneTypes, computeBenchmarkData, TEAM_CHART_DATA } from './analyticsData'
 import { parseGoalInput, safePercent, validateDateRange, filterMonthlySeries, alignPreviousByName } from './analyticsValidation'
+import { formatDate, formatUsdc } from '../utils/format'
 
 const PERIODS: Period[] = ['7d', '30d', '90d', '1y', 'All']
 
@@ -339,7 +340,7 @@ const currentStreak = useMemo(() => {
       // Period & date
       doc.setFontSize(9)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Period: ${customRangeActive ? `${customFrom} → ${customTo}` : period}   •   Generated: ${new Date().toLocaleDateString()}`, 14, 24)
+      doc.text(`Period: ${customRangeActive ? `${customFrom} → ${customTo}` : period}   •   Generated: ${formatDate(new Date())}`, 14, 24)
 
       // Key metrics section
       doc.setTextColor(30, 45, 66)
@@ -405,7 +406,7 @@ const currentStreak = useMemo(() => {
         doc.setTextColor(200, 60, 55)
         doc.text(`${row.failed}%`, 100, y)
         doc.setTextColor(30, 45, 66)
-        doc.text(`$${row.capital.toLocaleString()}`, 135, y)
+        doc.text(`$${formatUsdc(row.capital)}`, 135, y)
         doc.text(`${row.milestones}`, 175, y)
       })
 
@@ -961,7 +962,7 @@ const currentStreak = useMemo(() => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
                     <span style={{ color: 'var(--muted)' }}>Current: {formatCurrency(kpis.totalCapital)}</span>
                     <span style={{ color: capitalGoalMet ? seriesColors.success : seriesColors.comparison }}>
-                      Goal: {capitalGoal.value !== null ? `$${capitalGoal.value.toLocaleString()}` : '—'}
+                      Goal: {capitalGoal.value !== null ? `$${formatUsdc(capitalGoal.value)}` : '—'}
                     </span>
                   </div>
                   <div style={{ height: 8, background: 'var(--border)', borderRadius: 99, position: 'relative' }}>
@@ -973,7 +974,7 @@ const currentStreak = useMemo(() => {
                     }} />
                   </div>
                   <div style={{ fontSize: '0.75rem', color: kpis.totalCapital >= Number(goalCapital) ? seriesColors.success : 'var(--muted)', marginTop: '0.3rem' }}>
-                    {kpis.totalCapital >= (capitalGoal.value ?? 5000) ? '✓ Goal achieved!' : `$${((capitalGoal.value ?? 5000) - kpis.totalCapital).toLocaleString()} to go`}
+                    {kpis.totalCapital >= (capitalGoal.value ?? 5000) ? '✓ Goal achieved!' : `$${formatUsdc((capitalGoal.value ?? 5000) - kpis.totalCapital)} to go`}
                   </div>
                 </div>
               </div>

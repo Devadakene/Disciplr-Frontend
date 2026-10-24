@@ -54,9 +54,11 @@ describe('createVaultPrefillFromVault', () => {
       createVaultPrefill: {
         sourceVaultId: 'vault-1',
         sourceVaultName: 'My Test Vault',
+        name: 'My Test Vault (copy)',
         amount: '500',
         successAddress: 'GSUCCESS',
         failureAddress: 'GFAILURE',
+        verifierAddress: 'GVERIFIER',
         milestones: [
           { title: 'Phase 1', criteria: 'Deliver MVP' },
           { title: 'Phase 2', criteria: 'Pass audit' },
@@ -109,9 +111,11 @@ describe('getCreateVaultPrefill', () => {
     expect(parsed).toEqual({
       sourceVaultId: 'vault-1',
       sourceVaultName: 'My Test Vault',
+      name: 'My Test Vault (copy)',
       amount: '500',
       successAddress: 'GSUCCESS',
       failureAddress: 'GFAILURE',
+      verifierAddress: 'GVERIFIER',
       milestones: [
         { title: 'Phase 1', criteria: 'Deliver MVP' },
         { title: 'Phase 2', criteria: 'Pass audit' },
@@ -212,9 +216,11 @@ describe('getCreateVaultPrefill', () => {
       createVaultPrefill: {
         sourceVaultId: 99,
         sourceVaultName: true,
+        name: true,
         amount: { nested: 'object' },
         successAddress: null,
         failureAddress: [],
+        verifierAddress: 42,
       },
     };
 
@@ -222,9 +228,11 @@ describe('getCreateVaultPrefill', () => {
     expect(parsed).toEqual({
       sourceVaultId: undefined,
       sourceVaultName: undefined,
+      name: undefined,
       amount: undefined,
       successAddress: undefined,
       failureAddress: undefined,
+      verifierAddress: undefined,
       milestones: undefined,
     });
   });

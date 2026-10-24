@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../pages/Analytics', () => ({ default: () => <div>Analytics</div> }));
 vi.mock('../pages/Notification', () => ({ default: () => <div>Notification</div> }));
@@ -28,5 +28,10 @@ describe('App lazy routes', () => {
   it('should verify Notification is imported via lazy()', async () => {
     const appSource = await import('../App?raw');
     expect(appSource.default).toContain("lazy(() => import('./pages/Notification'))");
+  });
+
+  it('should verify VaultTransactions is imported via lazy()', async () => {
+    const appSource = await import('../App?raw');
+    expect(appSource.default).toContain("lazy(() => import('./pages/VaultTransactions'))");
   });
 });

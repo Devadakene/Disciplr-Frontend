@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useReducedMotion } from 'framer-motion';
 import { ShortcutsHelp } from '../ShortcutsHelp';
 import { SHORTCUTS } from '@/utils/shortcuts';
+import { registerShortcut } from '@/utils/shortcutRegistry';
 
 vi.mock('framer-motion', async (importOriginal) => {
   const original = await importOriginal<typeof import('framer-motion')>();
@@ -195,6 +196,22 @@ describe('ShortcutsHelp', () => {
     render(<ShortcutsHelp />);
     fireEvent.keyDown(document, { key: '?' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('dynamically renders newly registered shortcuts from the registry', () => {
+    const unregister = registerShortcut({
+      keys: 'g q',
+      description: 'Go to verifier queue',
+      handler: vi.fn(),
+    });
+
+    render(<ShortcutsHelp />);
+    fireEvent.keyDown(document, { key: '?' });
+
+    expect(screen.getByText('g q')).toBeInTheDocument();
+    expect(screen.getByText('Go to verifier queue')).toBeInTheDocument();
+
+    unregister();
   });
 
   it('removes the keydown listener on unmount', () => {

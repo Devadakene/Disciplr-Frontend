@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ValidationTask } from '../../Zustand/Store';
-import type { Transaction } from '../../pages/VaultTransactions';
+import type { VaultActivityRecord } from '../../services/vaultService';
 import {
   NON_FINITE_NUMERIC_PLACEHOLDER,
   downloadCsv,
@@ -125,11 +125,9 @@ describe('toCsv', () => {
       type: 'create' as const,
       vault: 'Alpha, Vault',
       amount: 100,
-      fee: 0.0001,
       status: 'confirmed' as const,
       timestamp: new Date('2026-01-01T00:00:00.000Z'),
       hash: 'hash123',
-      block: 12345,
       from: 'G1',
       to: 'G2',
       memo: 'Initial, deposit',
@@ -191,16 +189,14 @@ describe('toCsv', () => {
   });
 });
 
-const baseTx = (overrides: Partial<Transaction> = {}): Transaction => ({
+const baseTx = (overrides: Partial<VaultActivityRecord> = {}): VaultActivityRecord => ({
   id: 'tx-001',
   type: 'create',
   vault: 'Alpha Vault',
   amount: 100,
-  fee: 0.0001,
   status: 'confirmed',
   timestamp: new Date('2026-01-01T00:00:00.000Z'),
   hash: 'hash123',
-  block: 12345,
   from: 'G1',
   to: 'G2',
   memo: '',
@@ -243,7 +239,7 @@ describe('normalizeNumericCell', () => {
 
 describe('toCsv transaction numeric normalization', () => {
   const TX_HEADER =
-    'ID,Type,Vault,Amount (XLM),Fee (XLM),Status,Timestamp,Hash,Block,From,To,Memo';
+    'ID,Type,Vault,Amount (USDC),Fee (USDC),Status,Timestamp,Hash,Block,From,To,Memo';
 
   it('normalizes amount and fee before formula escaping', () => {
     const tx = baseTx({ amount: 12500.5, fee: 0.00012 });
@@ -253,11 +249,25 @@ describe('toCsv transaction numeric normalization', () => {
     expect(lines[1]).toContain(',12500.5,0.00012,');
   });
 
+  it('renders em dash placeholders when fee and block are absent', () => {
+    const tx = baseTx({ fee: undefined, block: undefined });
+    const result = toCsv([tx], 'transactions');
+    const lines = result.split('\r\n');
+    expect(lines[0]).toBe(TX_HEADER);
+    expect(lines[1]).toContain('tx-001,create,Alpha Vault,100,—,confirmed,2026-01-01T00:00:00.000Z,hash123,—,G1,G2,');
+  });
+
+  it('renders em dash placeholder when only fee is absent', () => {
+    const tx = baseTx({ fee: undefined });
+    const result = toCsv([tx], 'transactions');
+    expect(result).toContain(',100,—,confirmed,');
+  });
+
   it('replaces NaN amount and Infinity fee with the safe placeholder', () => {
     const tx = baseTx({ amount: NaN, fee: Infinity });
     const result = toCsv([tx], 'transactions');
     expect(result).toContain(
-      `tx-001,create,Alpha Vault,,,confirmed,2026-01-01T00:00:00.000Z,hash123,12345,G1,G2,`,
+      `tx-001,create,Alpha Vault,,,confirmed,2026-01-01T00:00:00.000Z,hash123,—,G1,G2,`,
     );
   });
 

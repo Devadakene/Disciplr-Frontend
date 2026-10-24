@@ -68,7 +68,7 @@ describe('VaultCard', () => {
   it('renders vault name and amount', () => {
     renderCard();
     expect(screen.getByText('Alpha Vault')).toBeInTheDocument();
-    expect(screen.getByText('12,500 USDC')).toBeInTheDocument();
+    expect(screen.getByText('12,500.00 USDC')).toBeInTheDocument();
   });
 
   it('renders live countdown deadline', () => {

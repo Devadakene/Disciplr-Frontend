@@ -1,4 +1,4 @@
-import { ACCOUNT_A, ACCOUNT_B, ACCOUNT_C, CONTRACT_ADDRESS } from '@/__tests__/fixtures/stellarAddresses';
+import { ACCOUNT_A, ACCOUNT_B, ACCOUNT_C, ACCOUNT_D, CONTRACT_ADDRESS } from '@/__tests__/fixtures/stellarAddresses';
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,15 +7,67 @@ import {
   isValidStellarAddress,
   isValidUsdcAmount,
   validateMilestones,
-  validateCreateVault,
+  validateCreateVault as validateCreateVaultForm,
+  type CreateVaultFormValues,
 } from "../vaultValidation";
 
 const successAddress = ACCOUNT_A;
 const failureAddress = ACCOUNT_B;
 const verifierAddress = ACCOUNT_C;
 const now = new Date("2026-06-18T00:00:00Z");
+const validFormValues: CreateVaultFormValues = {
+  name: "Valid vault",
+  amount: "100",
+  deadline: "2026-06-19T00:00:00Z",
+  successAddress,
+  failureAddress,
+  verifierAddress,
+};
+
+function validateCreateVault(
+  values: Partial<CreateVaultFormValues>,
+  validationDate = new Date(),
+  creatorAddress?: string,
+) {
+  return validateCreateVaultForm(
+    { ...validFormValues, ...values },
+    validationDate,
+    creatorAddress,
+  );
+}
 
 describe("vaultValidation", () => {
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", "   "],
+  ])("requires a non-empty vault name (%s)", (_case, name) => {
+    expect(validateCreateVault({ name }, now).name).toBe("Enter a vault name.");
+  });
+
+  it("rejects a vault name longer than 80 characters", () => {
+    expect(validateCreateVault({ name: "a".repeat(81) }, now).name).toBe(
+      "Vault name must be between 3 and 80 characters.",
+    );
+  });
+
+  it("rejects control characters in vault names", () => {
+    expect(validateCreateVault({ name: "Valid\nvault" }, now).name).toBe(
+      "Vault name cannot contain control characters.",
+    );
+  });
+
+  it("rejects vault names shorter than 3 characters", () => {
+    expect(validateCreateVault({ name: "ab" }, now).name).toBe(
+      "Vault name must be between 3 and 80 characters.",
+    );
+  });
+
+  it("requires a verifier address", () => {
+    expect(validateCreateVault({ verifierAddress: "" }, now).verifierAddress).toBe(
+      "Enter a verifier address.",
+    );
+  });
+
   it.each(['successAddress', 'failureAddress', 'verifierAddress'] as const)(
     'rejects a checksum-corrupted %s',
     (field) => {
@@ -71,6 +123,7 @@ describe("vaultValidation", () => {
         milestones: [],
       },
       now,
+    ACCOUNT_A,
     );
 
     expect(errors).toEqual({
@@ -269,18 +322,16 @@ describe("vaultValidation", () => {
     ).toEqual({});
   });
 
-  it('allows empty verifier address', () => {
+  it('rejects a contract verifier address', () => {
     const errors = validateCreateVault(
       {
-        amount: '100',
-        deadline: '2026-06-19T00:00:00Z',
-        successAddress,
-        failureAddress,
-        verifierAddress: '',
+        verifierAddress: CONTRACT_ADDRESS,
       },
       now,
     );
-    expect(errors.verifierAddress).toBeUndefined();
+    expect(errors.verifierAddress).toBe(
+      "Enter a Stellar account address (starts with G). Contract addresses aren't supported yet.",
+    );
   });
 
   it('rejects invalid verifier address', () => {
@@ -309,6 +360,19 @@ describe("vaultValidation", () => {
       now,
     );
     expect(errors.verifierAddress).toBe('Verifier must be different from the success destination.');
+  });
+
+  it('rejects verifier identical to the connected creator after trimming', () => {
+    const errors = validateCreateVault(
+      {
+        verifierAddress: ` ${ACCOUNT_A} `,
+          successAddress: ACCOUNT_B,
+          failureAddress: ACCOUNT_D,
+        },
+        now,
+        ACCOUNT_A,
+      );
+    expect(errors.verifierAddress).toBe("Verifier cannot be you.");
   });
 
   it('rejects verifier identical to failure address', () => {

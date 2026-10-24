@@ -27,6 +27,7 @@ export type ConnectErrorCode =
   | 'address_unavailable'
   | 'wallet_error'
   | 'timeout'
+  | 'cancelled'
   | 'unknown';
 
 export type ConnectIgnoredReason = 'already_in_flight' | 'button_pending';
@@ -148,6 +149,9 @@ export function classifyConnectError(message: string | null | undefined): Connec
   }
   if (normalized.includes('timed out') || normalized.includes('timeout')) {
     return 'timeout';
+  }
+  if (normalized.includes('cancel')) {
+    return 'cancelled';
   }
   return 'wallet_error';
 }

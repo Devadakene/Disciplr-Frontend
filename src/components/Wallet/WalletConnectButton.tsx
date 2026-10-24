@@ -57,10 +57,19 @@ export function WalletConnectButton() {
 
     if (isConnecting && !address) {
         return (
-            <button className="wallet-connect-btn connecting" disabled>
-                <Loader2 size={16} className="animate-spin" />
-                <span>Connecting...</span>
-            </button>
+            <>
+                <button
+                    className="wallet-connect-btn connecting"
+                    onClick={() => setIsModalOpen(true)}
+                    title="Freighter is opening. Close any lingering popup before retrying."
+                >
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Connecting...</span>
+                </button>
+                {isModalOpen && (
+                    <WalletSelectionModal onClose={() => setIsModalOpen(false)} />
+                )}
+            </>
         );
     }
 

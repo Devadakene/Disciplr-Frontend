@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { logger } from "../utils/logger";
 import type { Milestone, MilestoneStatus } from "../types/vault";
 import { analyzeMilestones } from "../utils/vaultState";
+import { formatDateTime } from "../utils/format";
 import "./MilestoneTracker.css";
 
 export interface MilestoneTrackerProps {
@@ -48,13 +49,7 @@ function formatValidatedAt(iso: string): string {
     // Hostile/tampered timestamp: never synthesize a date from garbage.
     return "Unknown";
   }
-  return parsed.toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(parsed);
 }
 
 function checkInvariants(milestones: Milestone[]): Error | null {

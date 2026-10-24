@@ -62,9 +62,11 @@ describe("CreateVault integrity handling", () => {
 
     const prefillState = {
       createVaultPrefill: {
+        name: "A copied vault",
         amount: "100",
         successAddress: ACCOUNT_B,
         failureAddress: ACCOUNT_D,
+        verifierAddress: ACCOUNT_C,
         milestones: [{ title: "Milestone 1", criteria: "Criteria 1" }],
       },
     };

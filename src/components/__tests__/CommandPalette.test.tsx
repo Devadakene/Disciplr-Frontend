@@ -50,7 +50,7 @@ function renderPalette(options?: {
 }) {
   const loadVaults = options?.loadVaults ?? vi.fn().mockResolvedValue(vaults);
 
-  render(
+  const view = render(
     <MemoryRouter initialEntries={[options?.initialPath ?? "/"]}>
       <CommandPalette loadVaults={loadVaults} />
       <Routes>
@@ -59,7 +59,7 @@ function renderPalette(options?: {
     </MemoryRouter>,
   );
 
-  return { loadVaults };
+  return { loadVaults, ...view };
 }
 
 async function openPalette() {
@@ -383,6 +383,93 @@ describe("CommandPalette", () => {
       ).toHaveStyle({
         transition: "none",
       }),
+    );
+  });
+
+  it("ranks query 'vlt' with vault items above 'Dashboard'", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /Alpha Vault/i })).toBeInTheDocument();
+    });
+
+    await user.type(input, "vlt");
+
+    const options = screen.getAllByRole("option");
+    expect(options.length).toBeGreaterThan(0);
+    // First option should be a vault, not Dashboard
+    expect(options[0]).toHaveTextContent(/Vault/i);
+    expect(options[0]).not.toHaveTextContent(/Dashboard/i);
+  });
+
+  it("ranks query 'cv' with 'Create Vault' first", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    await user.type(input, "cv");
+
+    const options = screen.getAllByRole("option");
+    expect(options[0]).toHaveTextContent(/Create Vault/i);
+  });
+
+  it("wraps matched characters in <mark>", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    await user.type(input, "create");
+
+    const createVaultOption = screen.getByRole("option", { name: /Create Vault/i });
+    const mark = createVaultOption.querySelector("mark");
+    expect(mark).not.toBeNull();
+    expect(mark?.textContent?.toLowerCase()).toContain("create");
+  });
+
+  it("persists recents to localStorage across remounts and shows them under Recent for empty query", async () => {
+    localStorage.clear();
+    const { unmount } = renderPalette();
+    const user = await openPalette();
+
+    // Click 'Analytics'
+    const analyticsOption = screen.getByRole("option", { name: /Analytics/i });
+    await user.click(analyticsOption);
+
+    // Verify localStorage has the action id
+    const stored = JSON.parse(localStorage.getItem("disciplr:palette:recent:v1") || "[]");
+    expect(stored).toContain("action-analytics");
+
+    unmount();
+
+    // Remount palette
+    renderPalette();
+    const user2 = await openPalette();
+    const recentOptions = screen.getAllByRole("option");
+    // First option should be Analytics marked as RECENT
+    expect(recentOptions[0]).toHaveTextContent(/Analytics/i);
+    expect(recentOptions[0]).toHaveTextContent(/Recent/i);
+  });
+
+  it("executes perform() for non-navigation commands like shortcuts help", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+
+    await user.type(input, "shortcuts");
+
+    const shortcutsOption = screen.getByRole("option", { name: /Keyboard Shortcuts/i });
+    await user.click(shortcutsOption);
+
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "disciplr:open-shortcuts" }),
     );
   });
 });

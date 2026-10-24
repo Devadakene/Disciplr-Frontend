@@ -1,4 +1,4 @@
-import type { VaultStatus } from '../types/vault';
+import type { VaultStatus, Vault, Milestone } from '../types/vault';
 
 export type VaultLifecycleStageState = 'done' | 'current' | 'upcoming';
 
@@ -79,5 +79,24 @@ export function timelineProgress(
 
   const progress = ((now - start) / (end - start)) * 100;
   return Math.min(100, Math.max(0, progress));
+}
+
+/**
+ * Calculates percentage progress for a vault.
+ * If the vault has milestones, progress is based on the percentage of validated milestones.
+ * Otherwise, progress is based on elapsed timeline between createdAt and deadline.
+ * Progress is an integer clamped between 0 and 100.
+ */
+export function vaultProgressPct(
+  vault: Pick<Vault, 'createdAt' | 'deadline'> & {
+    milestones?: Array<Pick<Milestone, 'status'>>;
+  },
+  now: number = Date.now(),
+): number {
+  if (vault.milestones && vault.milestones.length > 0) {
+    const validated = vault.milestones.filter((m) => m.status === 'validated').length;
+    return Math.min(100, Math.max(0, Math.round((validated / vault.milestones.length) * 100)));
+  }
+  return Math.round(timelineProgress(vault.createdAt, vault.deadline, now));
 }
 

@@ -3,6 +3,7 @@ import {
   type ApiVault,
   SUCCESS_DESTINATION,
   FAILURE_DESTINATION,
+  VERIFIER_ADDRESS,
 } from './fixtures/fakeApi';
 
 test.describe('Disciplr End-to-End Journeys', () => {
@@ -53,6 +54,8 @@ test.describe('Disciplr End-to-End Journeys', () => {
       page.getByRole('heading', { level: 1, name: /create vault/i }),
     ).toBeVisible();
 
+    await page.getByLabel(/vault name/i).fill('Project Delivery Vault');
+
     // Fill in Amount
     await page.getByLabel(/amount \(usdc\)/i).fill('1000');
 
@@ -62,6 +65,7 @@ test.describe('Disciplr End-to-End Journeys', () => {
     // Fill valid checksummed destination addresses
     await page.getByLabel(/success destination/i).fill(SUCCESS_DESTINATION);
     await page.getByLabel(/failure destination/i).fill(FAILURE_DESTINATION);
+    await page.getByLabel(/verifier address/i).fill(VERIFIER_ADDRESS);
 
     // Fill Milestone 1
     await page.getByLabel(/milestone 1 title/i).fill('Architecture and Design Approval');
@@ -86,9 +90,9 @@ test.describe('Disciplr End-to-End Journeys', () => {
     await page.getByRole('button', { name: /confirm vault/i }).click();
 
     // Redirected to detail page
-    await expect(page).toHaveURL(/\/vaults\/v-/);
+    await expect(page).toHaveURL(/\/vaults\/(v-|demo-)/);
     await expect(
-      page.getByRole('heading', { level: 1, name: /Vault 1000 USDC/i }),
+      page.getByRole('heading', { level: 1, name: 'Project Delivery Vault' }),
     ).toBeVisible();
 
     // Verify amount and both milestones on detail page

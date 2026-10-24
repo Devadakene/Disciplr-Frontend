@@ -1,47 +1,78 @@
-import { useState, useEffect, useId } from 'react';
+import { useState, useEffect, useId, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Modal } from './Modal';
 import { Text } from './Text';
 import { SHORTCUTS, type ShortcutEntry } from '@/utils/shortcuts';
+import {
+  registerShortcut,
+  getRegisteredShortcuts,
+  isEditableTarget,
+} from '@/utils/shortcutRegistry';
 
-function isEditableTarget(element: Element | null): boolean {
-  if (!element) return false;
-  const tag = element.tagName.toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
-  if (!(element instanceof HTMLElement)) return false;
-  if (element.isContentEditable) return true;
-  // Fallback: check the raw attribute for environments where isContentEditable
-  // doesn't reflect React-set values (e.g. jsdom).
-  const ce = element.getAttribute('contenteditable');
-  return ce !== null && ce !== 'false';
-}
+export { isEditableTarget };
 
 interface ShortcutsHelpProps {
   shortcuts?: ShortcutEntry[];
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export function ShortcutsHelp({ shortcuts = SHORTCUTS }: ShortcutsHelpProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function ShortcutsHelp({ shortcuts, isOpen: controlledIsOpen, onClose }: ShortcutsHelpProps) {
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
+  const setIsOpen = onClose
+    ? (next: boolean | ((prev: boolean) => boolean)) => {
+        if (typeof next === 'function' ? !next(isOpen) : !next) {
+          onClose();
+        }
+      }
+    : setInternalIsOpen;
+
   const titleId = useId();
   const descId = useId();
 
+  // Register '?' in the shortcut registry
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== '?') return;
-      const target = e.target instanceof Element ? e.target : null;
-      if (isEditableTarget(target) || isEditableTarget(document.activeElement)) return;
-      e.preventDefault();
-      setIsOpen(prev => !prev);
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    return registerShortcut({
+      keys: '?',
+      description: 'Show keyboard shortcuts',
+      handler: () => {
+        setInternalIsOpen((prev) => !prev);
+      },
+    });
   }, []);
+
+  // Listen for programmatic open requests from CommandPalette or other actions
+  useEffect(() => {
+    const handleOpen = () => setInternalIsOpen(true);
+    window.addEventListener('disciplr:open-shortcuts', handleOpen);
+    return () => window.removeEventListener('disciplr:open-shortcuts', handleOpen);
+  }, []);
+
+  const displayShortcuts = useMemo(() => {
+    if (shortcuts !== undefined) return shortcuts;
+    const registered = getRegisteredShortcuts();
+    const seen = new Set<string>();
+    const list: ShortcutEntry[] = [];
+    for (const s of registered) {
+      if (!seen.has(s.key)) {
+        seen.add(s.key);
+        list.push(s);
+      }
+    }
+    for (const s of SHORTCUTS) {
+      if (!seen.has(s.key)) {
+        seen.add(s.key);
+        list.push(s);
+      }
+    }
+    return list;
+  }, [shortcuts]);
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={() => setIsOpen(false)}
+      onClose={() => (onClose ? onClose() : setInternalIsOpen(false))}
       ariaLabelledBy={titleId}
       ariaDescribedBy={descId}
       contentClassName="modal-content-default rounded-xl max-w-md w-full overflow-hidden flex flex-col"
@@ -53,7 +84,7 @@ export function ShortcutsHelp({ shortcuts = SHORTCUTS }: ShortcutsHelpProps) {
         <button
           type="button"
           aria-label="Close keyboard shortcuts"
-          onClick={() => setIsOpen(false)}
+          onClick={() => (onClose ? onClose() : setInternalIsOpen(false))}
           className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-md p-1 transition-colors"
         >
           <X size={20} aria-hidden="true" />
@@ -61,14 +92,14 @@ export function ShortcutsHelp({ shortcuts = SHORTCUTS }: ShortcutsHelpProps) {
       </div>
 
       <div className="px-6 py-4" id={descId}>
-        {shortcuts.length === 0 ? (
+        {displayShortcuts.length === 0 ? (
           <Text role="body" as="p" className="text-gray-500">
             No shortcuts registered.
           </Text>
         ) : (
           <table className="w-full" aria-label="Keyboard shortcuts">
             <tbody>
-              {shortcuts.map(({ key, description }: ShortcutEntry) => (
+              {displayShortcuts.map(({ key, description }: ShortcutEntry) => (
                 <tr
                   key={key}
                   className="border-b border-gray-100 dark:border-gray-700 last:border-0"

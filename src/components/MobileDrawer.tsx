@@ -4,6 +4,7 @@ import FocusTrap from 'focus-trap-react';
 import NavLink from './NavLink';
 import { WalletConnectButton } from './Wallet/WalletConnectButton';
 import { toCloseHandler, toDrawerOpen } from '../utils/drawerState';
+import { useOptionalWallet } from '../context/WalletContext';
 
 interface MobileDrawerProps {
   isOpen: boolean;
@@ -11,6 +12,9 @@ interface MobileDrawerProps {
 }
 
 export default function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
+  const wallet = useOptionalWallet();
+  const isDemo = wallet?.isDemo ?? false;
+  const resetDemo = wallet?.resetDemo ?? (() => {});
   const drawerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
@@ -129,6 +133,27 @@ export default function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
           <NavLink to="/vaults/create" className="mobile-drawer-link" onClick={handleClose}>
             Create Vault
           </NavLink>
+          {isDemo && (
+            <button
+              type="button"
+              className="mobile-drawer-link"
+              onClick={() => {
+                resetDemo();
+                handleClose();
+              }}
+              style={{
+                background: "none",
+                border: "none",
+                textAlign: "left",
+                cursor: "pointer",
+                color: "var(--accent)",
+                width: "100%",
+                font: "inherit",
+              }}
+            >
+              Reset demo
+            </button>
+          )}
           <WalletConnectButton />
         </nav>
       </div>

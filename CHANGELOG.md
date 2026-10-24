@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in web-vitals sink (`src/utils/vitalsSink.ts`): when `VITE_VITALS_ENDPOINT` is set (and the page passes `VITE_VITALS_SAMPLE_RATE`, default `0.1`), finalised metrics are batched and sent via `navigator.sendBeacon` as one compact JSON payload per page hide, with route-normalised paths (e.g. `/vaults/:id`) so payloads never carry query strings or addresses (#1536).
+- Web-vitals unit-test suites covering measurement semantics, exactly-once finalisation, and sink delivery (`src/utils/__tests__/reportWebVitals.test.ts`, `src/utils/__tests__/vitalsSink.test.ts`) (#1536).
 - Architectural design system documentation for `Tooltip` component (`design-system/documentation/tooltip.md`) detailing the z-index token layering scale, accessibility contracts, and usage patterns.
 - Comprehensive z-index hierarchy and stacking validation tests in `src/components/__tests__/Tooltip.test.tsx` verifying alignment with `design-system/tokens/z-index.json`.
 - Typography primitive `Text` component (`src/components/Text.tsx`) supporting
@@ -28,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Rewrote web-vitals measurement in `src/utils/reportWebVitals.ts` to follow the `web-vitals` reference algorithms (CLS session windows, INP interaction grouping with p98 estimate, LCP finalisation on first input or page hide) without adding a dependency; metrics are now finalised exactly once on `visibilitychange -> hidden`/`pagehide` (with back/forward-cache reset) instead of reporting interim values (#1536).
+- Vitals now flow through the sink's `logger`-backed dev console output instead of `console.info`; production builds emit no console output for vitals (#1536).
+- Added `VITE_VITALS_ENDPOINT` and `VITE_VITALS_SAMPLE_RATE` to the env contract in `src/vite-env.d.ts` (#1536).
 - Aligned the typography CSS custom properties in `src/index.css` to
   `design-system/tokens/typography.json`, including dedicated font-weight
   variables for all five roles and the Inter font family from the design tokens.
@@ -37,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed deprecated FID reporting from `src/utils/reportWebVitals.ts`; INP is the interaction metric (#1536).
 - Removed dead `classifyTypography` export in `src/utils/typography.ts` and retired redundant wrapper tests in favor of direct `Text` component composition (#1254).
 
 ### Verified

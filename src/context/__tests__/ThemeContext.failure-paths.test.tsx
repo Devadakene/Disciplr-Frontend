@@ -104,7 +104,8 @@ describe('ThemeContext corrupt stored preference', () => {
         <Probe />
       </ThemeProvider>
     );
-    expect(localStorage.getItem('disciplr-theme')).toBe('system');
+    // Not overwritten on mount (no write on mount), but preference state defaults to system
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
 
     fireEvent.click(screen.getByText('Set Dark'));
     expect(localStorage.getItem('disciplr-theme')).toBe('dark');
