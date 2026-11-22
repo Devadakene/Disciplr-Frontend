@@ -5,6 +5,15 @@ import { MemoryRouter } from 'react-router-dom';
 import PendingValidations from '../PendingValidations';
 import { useVerifierStore } from '../../Zustand/Store';
 
+const { mockDownloadCsv } = vi.hoisted(() => ({
+  mockDownloadCsv: vi.fn(),
+}));
+
+vi.mock('../../utils/csv', async () => {
+  const actual = await vi.importActual('../../utils/csv');
+  return { ...actual, downloadCsv: mockDownloadCsv };
+});
+
 vi.mock('../../Zustand/Store', () => ({
   useVerifierStore: vi.fn(),
 }));
@@ -550,6 +559,94 @@ describe('PendingValidations', () => {
 
       expect(screen.getByText(/No results found/i)).toBeInTheDocument();
       expect(screen.getByText(/Try adjusting your search/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('CSV export', () => {
+    it('exports all visible rows in current sort order with pending-validations.csv filename', () => {
+      renderPage();
+      const exportButton = screen.getByRole('button', {
+        name: /Export filtered pending validations as CSV/i,
+      });
+      expect(exportButton).not.toBeDisabled();
+
+      fireEvent.click(exportButton);
+
+      expect(mockDownloadCsv).toHaveBeenCalledTimes(1);
+      const [csv, filename] = mockDownloadCsv.mock.calls[0];
+      expect(filename).toBe('pending-validations.csv');
+
+      const lines = csv.split('\r\n');
+      // Default sort is deadline asc: v-2 (2026-06-20), v-1 (2026-07-01), v-3 (2026-07-10)
+      expect(lines).toHaveLength(4);
+      expect(lines[0]).toBe('ID,Status,Vault Name,Owner,Amount,Deadline,Milestone,Notes');
+      expect(lines[1]).toContain('v-2');
+      expect(lines[2]).toContain('v-1');
+      expect(lines[3]).toContain('v-3');
+    });
+
+    it('exports rows in updated sort order when sort direction is toggled', () => {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /Sort direction:/i }));
+      fireEvent.click(
+        screen.getByRole('button', { name: /Export filtered pending validations as CSV/i }),
+      );
+
+      expect(mockDownloadCsv).toHaveBeenCalledTimes(1);
+      const [csv, filename] = mockDownloadCsv.mock.calls[0];
+      expect(filename).toBe('pending-validations.csv');
+
+      const lines = csv.split('\r\n');
+      // Deadline desc: v-3 (2026-07-10), v-1 (2026-07-01), v-2 (2026-06-20)
+      expect(lines).toHaveLength(4);
+      expect(lines[1]).toContain('v-3');
+      expect(lines[2]).toContain('v-1');
+      expect(lines[3]).toContain('v-2');
+    });
+
+    it('exports only currently visible filtered rows', () => {
+      renderPage();
+      const milestoneSelect = screen.getByLabelText(/Filter by Milestone/i) as HTMLSelectElement;
+      fireEvent.change(milestoneSelect, { target: { value: 'Phase 1' } });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /Export filtered pending validations as CSV/i }),
+      );
+
+      expect(mockDownloadCsv).toHaveBeenCalledTimes(1);
+      const [csv, filename] = mockDownloadCsv.mock.calls[0];
+      expect(filename).toBe('pending-validations.csv');
+
+      const lines = csv.split('\r\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toContain('v-1');
+    });
+
+    it('disables Export CSV button when search matches nothing', () => {
+      renderPage();
+      const searchInput = screen.getByLabelText(/Search by Vault Name or Owner/i) as HTMLInputElement;
+      fireEvent.change(searchInput, { target: { value: 'NonExistentVault' } });
+
+      const exportButton = screen.getByRole('button', {
+        name: /Export filtered pending validations as CSV/i,
+      });
+      expect(exportButton).toBeDisabled();
+
+      fireEvent.click(exportButton);
+      expect(mockDownloadCsv).not.toHaveBeenCalled();
+    });
+
+    it('disables Export CSV button when pending queue is empty', () => {
+      mockedUseVerifierStore.mockReturnValue({ pendingValidations: [] });
+      renderPage();
+
+      const exportButton = screen.getByRole('button', {
+        name: /Export filtered pending validations as CSV/i,
+      });
+      expect(exportButton).toBeDisabled();
+
+      fireEvent.click(exportButton);
+      expect(mockDownloadCsv).not.toHaveBeenCalled();
     });
   });
 });

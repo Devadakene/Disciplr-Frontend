@@ -10,6 +10,7 @@ import { StatusChip } from '../components/StatusChip';
 import { filterPending } from '../utils/filterPending';
 import { sortPending, type PendingSortKey, type SortDirection } from '../utils/sortPending';
 import { daysRemaining } from '../utils/dashboard';
+import { downloadCsv, toCsv } from '../utils/csv';
 import { useCurrentTime } from '../hooks/useCurrentTime';
 
 export default function PendingValidations() {
@@ -155,7 +156,7 @@ export default function PendingValidations() {
 
       <section
         aria-label="Pending validation filters"
-        className="grid gap-4 md:grid-cols-2"
+        className="grid gap-4 md:grid-cols-[1fr_1fr_auto] items-end"
       >
         <label className="flex flex-col gap-1 text-sm font-medium" style={{ color: 'var(--text)' }}>
           Search by Vault Name or Owner
@@ -186,6 +187,26 @@ export default function PendingValidations() {
             ))}
           </select>
         </label>
+        <div className="flex flex-col gap-1 self-end">
+          <button
+            type="button"
+            aria-label="Export filtered pending validations as CSV"
+            disabled={sortedValidations.length === 0}
+            onClick={() => downloadCsv(toCsv(sortedValidations), 'pending-validations.csv')}
+            className="disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: 'var(--bg)',
+              color: 'var(--text)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)',
+              padding: '0.65rem 0.75rem',
+              cursor: sortedValidations.length === 0 ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
       </section>
 
       <section className="border rounded-lg shadow-sm overflow-x-auto" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
