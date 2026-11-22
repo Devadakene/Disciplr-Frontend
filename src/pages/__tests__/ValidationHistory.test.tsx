@@ -2,7 +2,6 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ValidationTask } from '../../Zustand/Store';
 import { useVerifierStore } from '../../Zustand/Store';
-import { VALIDATION_HISTORY_PAGE_SIZE_KEY } from '../../utils/pageSizePref';
 import ValidationHistory from '../ValidationHistory';
 
 const { mockDownloadCsv } = vi.hoisted(() => ({
@@ -145,9 +144,10 @@ const longHistory: ValidationTask[] = [
 ];
 
 function renderHistory(history = baseHistory) {
-  vi.mocked(useVerifierStore).mockReturnValue({
-    validationHistory: history,
-  } as ReturnType<typeof useVerifierStore>);
+  vi.mocked(useVerifierStore).mockImplementation(
+    ((selector: (state: { validationHistory: typeof history }) => unknown) =>
+      selector({ validationHistory: history })) as typeof useVerifierStore,
+  );
 
   return render(<ValidationHistory />);
 }
@@ -453,6 +453,20 @@ describe('ValidationHistory', () => {
       const [csv] = mockDownloadCsv.mock.calls[0];
       expect(csv).toContain('v-004');
       expect(csv).not.toContain('v-001');
+    });
+
+    it('disables the export button when no validations match the active filters', () => {
+      const { container } = renderHistory();
+
+      expect(container.querySelector('.history-table')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Search validation history by vault or owner'), {
+        target: { value: 'nothing-matches-this-query' },
+      });
+
+      const btn = screen.getByRole('button', { name: /export.*csv/i });
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveClass('history-export-btn');
     });
   });
 });

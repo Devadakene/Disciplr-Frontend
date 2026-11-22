@@ -1,23 +1,25 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, ReactNode } from 'react';
+import { logger } from '../utils/logger';
 
-// In‑memory fallback when localStorage fails
+// In-memory fallback when localStorage fails
 let memoryPreference: UserPreference | null = null;
 
 function safeGetItem(key: string): string | null {
   try {
     return localStorage.getItem(key) ?? null;
-  } catch (_) {
+  } catch {
     // fallback to in-memory preference when storage is unavailable
     return memoryPreference;
   }
 }
 
-function safeSetItem(key: string, value: string): void {
+function safeSetItem(key: string, value: UserPreference): void {
   try {
     localStorage.setItem(key, value);
-  } catch (_) {
-    // persist in-memory when storage is unavailable
-    memoryPreference = value as UserPreference;
+  } catch {
+    // persist in-memory when storage is unavailable; value is already
+    // typed as UserPreference so no cast is required here.
+    memoryPreference = value;
   }
 }
 
@@ -48,10 +50,15 @@ const NEXT_PREFERENCE: Record<UserPreference, UserPreference> = {
 
 function getSystemTheme(): Theme {
   if (typeof window === 'undefined') return 'light';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    // MatchMedia unavailable (e.g. jsdom without mock) — default to light
+    return 'light';
+  }
 }
 
-function isValidPreference(value: string | null | undefined): value is UserPreference {
+function isValidPreference(value: unknown): value is UserPreference {
   return value === 'light' || value === 'dark' || value === 'system';
 }
 
@@ -67,10 +74,49 @@ function resolveTheme(preference: UserPreference): Theme {
   return preference;
 }
 
+const THEME_COLORS: Record<Theme, string> = {
+  light: '#F9FAFB',
+  dark: '#111827',
+};
+
+function updateThemeColorMeta(theme: Theme): void {
+  if (typeof document === 'undefined') return;
+  // Look for a theme-color meta tag without a media attribute, or create one if absent
+  let meta = document.querySelector('meta[name="theme-color"]:not([media])') as HTMLMetaElement | null;
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute('name', 'theme-color');
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute('content', THEME_COLORS[theme]);
+}
+
+function withTransitionDisabled(action: () => void): void {
+  if (typeof document === 'undefined') {
+    action();
+    return;
+  }
+  const root = document.documentElement;
+  root.classList.add('theme-changing');
+  action();
+  // Force reflow/two animation frames before removing class so transition is suppressed
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      root.classList.remove('theme-changing');
+    });
+  });
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<UserPreference>(() => {
     const stored = getStoredPreference();
     if (stored) return stored;
+    if (typeof document !== 'undefined') {
+      const initialDataTheme = document.documentElement.dataset.theme;
+      if (isValidPreference(initialDataTheme)) {
+        return initialDataTheme;
+      }
+    }
     // Default to system when no stored preference exists
     return 'system';
   });
@@ -80,15 +126,37 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const theme = useMemo(() => resolveTheme(preference), [preference, osTick]);
 
-  // Apply data-theme and persist preference whenever it changes
+  // Apply data-theme, style.colorScheme, and theme-color meta whenever theme changes
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute('data-theme', theme);
-    safeSetItem(THEME_STORAGE_KEY, preference);
-  }, [theme, preference]);
+    root.style.colorScheme = theme;
+    updateThemeColorMeta(theme);
+  }, [theme]);
+
+  // Cross-tab synchronization via storage event
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== THEME_STORAGE_KEY) return;
+      if (event.newValue === null) {
+        withTransitionDisabled(() => {
+          setPreferenceState('system');
+        });
+      } else if (isValidPreference(event.newValue)) {
+        const nextPref = event.newValue;
+        withTransitionDisabled(() => {
+          setPreferenceState(nextPref);
+        });
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   // Listen for OS preference changes when in system mode
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => {
       if (preference === 'system') {
@@ -101,12 +169,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [preference]);
 
   const toggleTheme = useCallback(() => {
-    setPreferenceState((prev) => NEXT_PREFERENCE[prev]);
+    withTransitionDisabled(() => {
+      setPreferenceState((prev) => {
+        const next = NEXT_PREFERENCE[prev];
+        safeSetItem(THEME_STORAGE_KEY, next);
+        return next;
+      });
+    });
   }, []);
 
+  // Validate input at the boundary: ignore invalid preferences rather than
+  // corrupting state or persisting an unsafe value. This keeps the public
+  // interface stable while enforcing the invariant that only light/dark/system
+  // can ever reach state or storage.
   const setTheme = useCallback((newPreference: UserPreference) => {
-    setPreferenceState(newPreference);
-    safeSetItem(THEME_STORAGE_KEY, newPreference);
+    if (!isValidPreference(newPreference)) {
+      logger.warn('useTheme.setTheme ignored an invalid theme preference');
+      return;
+    }
+    withTransitionDisabled(() => {
+      setPreferenceState(newPreference);
+      safeSetItem(THEME_STORAGE_KEY, newPreference);
+    });
   }, []);
 
   return (
@@ -122,4 +206,9 @@ export function useTheme() {
     throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useOptionalTheme(): ThemeContextType | undefined {
+  return useContext(ThemeContext);
 }

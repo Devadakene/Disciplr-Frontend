@@ -3,9 +3,11 @@ import type { Milestone, Vault } from "../types/vault";
 export interface CreateVaultPrefillState {
   sourceVaultId?: string;
   sourceVaultName?: string;
+  name?: string;
   amount?: string;
   successAddress?: string;
   failureAddress?: string;
+  verifierAddress?: string;
   milestones?: Array<Pick<Milestone, "title" | "criteria">>;
 }
 
@@ -28,9 +30,11 @@ export function createVaultPrefillFromVault(
     createVaultPrefill: {
       sourceVaultId: vault.id,
       sourceVaultName: vault.name,
+      name: `${vault.name} (copy)`,
       amount: String(vault.amount),
       successAddress: vault.successAddress,
       failureAddress: vault.failureAddress,
+      verifierAddress: vault.verifierAddress,
       milestones: (vault.milestones ?? []).map(({ title, criteria }) => ({
         title,
         criteria,
@@ -57,9 +61,11 @@ export function getCreateVaultPrefill(
   return {
     sourceVaultId: optionalString(createVaultPrefill.sourceVaultId),
     sourceVaultName: optionalString(createVaultPrefill.sourceVaultName),
+    name: optionalString(createVaultPrefill.name),
     amount: optionalString(createVaultPrefill.amount),
     successAddress: optionalString(createVaultPrefill.successAddress),
     failureAddress: optionalString(createVaultPrefill.failureAddress),
+    verifierAddress: optionalString(createVaultPrefill.verifierAddress),
     milestones,
   };
 }

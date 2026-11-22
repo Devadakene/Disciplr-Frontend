@@ -1,352 +1,466 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, MemoryRouter, useInRouterContext } from "react-router-dom";
-import { StatusChip } from "../components/StatusChip";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Text } from "../components/Text";
 import VaultCard from "../components/VaultCard";
+import { Pagination } from "../components/Pagination";
+import { WalletConnectButton } from "../components/Wallet/WalletConnectButton";
+import { useWallet } from "../context/WalletContext";
 import { listVaults } from "../services/vaultService";
+import { vaultProgressPct } from "../utils/vaultLifecycle";
+import { paginate } from "../utils/paginate";
+import {
+  parseVaultsQuery,
+  serializeVaultsQuery,
+  filterVaults,
+  sortVaults,
+  VALID_SCOPES,
+  VALID_STATUSES,
+  VALID_SORTS,
+  PAGE_SIZE,
+  type VaultScope,
+  type VaultSort,
+  type VaultStatusFilter,
+} from "../utils/vaultsQuery";
 import type { Vault } from "../types/vault";
-import { createVaultPrefillFromVault } from "../utils/vaultPrefill";
-import { filterVaults, sortVaults } from "../utils/vaultFilter";
-import type { VaultStatus } from "../types/vault";
-import type { VaultSortOptions } from "../utils/vaultFilter";
+import { useOnRecovered } from "../hooks/useOnRecovered";
+import { useT, type MessageKey } from "../i18n";
 
-const STORAGE_KEY = "vaults-view-preference";
-const DEFAULT_VIEW: "list" | "grid" = "list";
+const SCOPE_LABEL_KEYS: Record<VaultScope, MessageKey> = {
+  all: "vaults.scope.all",
+  mine: "vaults.scope.mine",
+  verifying: "vaults.scope.verifying",
+};
 
-function getViewPreference(): "list" | "grid" {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "list" || stored === "grid") return stored;
-  } catch {
-    // localStorage may be disabled
-  }
-  return DEFAULT_VIEW;
-}
+const SORT_LABEL_KEYS: Record<VaultSort, MessageKey> = {
+  "-created": "vaults.sort.newest",
+  created: "vaults.sort.oldest",
+  deadline: "vaults.sort.deadlineSoonest",
+  "-deadline": "vaults.sort.deadlineLatest",
+  "-amount": "vaults.sort.amountHighToLow",
+  amount: "vaults.sort.amountLowToHigh",
+};
 
-function setViewPreference(view: "list" | "grid") {
-  try {
-    localStorage.setItem(STORAGE_KEY, view);
-  } catch {
-    // localStorage may be disabled
-  }
-}
+const STATUS_LABEL_KEYS: Record<VaultStatusFilter, MessageKey> = {
+  all: "vaults.status.all",
+  active: "vaults.status.active",
+  pending_validation: "vaults.status.pending_validation",
+  completed: "vaults.status.completed",
+  failed: "vaults.status.failed",
+  cancelled: "vaults.status.cancelled",
+};
 
-function calculateProgressPct(vault: Vault): number {
-  if (!vault.milestones || vault.milestones.length === 0) return 0;
-  const validated = vault.milestones.filter(
-    (m) => m.status === "validated",
-  ).length;
-  return Math.round((validated / vault.milestones.length) * 100);
-}
+export default function Vaults() {
+  const t = useT();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { address, sessionStatus, connectDemo, isConnecting } = useWallet();
 
-const DEFAULT_FETCH = () => listVaults();
+  const queryState = useMemo(() => parseVaultsQuery(searchParams), [searchParams]);
+  const { scope, status, q, sort, page } = queryState;
 
-function Skeleton() {
-  return (
-    <div
-      data-testid="skeleton"
-      style={{
-        height: 72,
-        background: "var(--surface, #1e293b)",
-        border: "1px solid var(--border, #334155)",
-        borderRadius: "var(--radius, 8px)",
-        animation: "pulse 1.5s ease-in-out infinite",
-      }}
-    />
-  );
-}
+  const [vaults, setVaults] = useState<Vault[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reloadToken, setReloadToken] = useState(0);
 
-interface VaultsInnerProps {
-  fetchVaults?: () => Promise<Vault[]>;
-}
-
-export function VaultsInner({ fetchVaults = DEFAULT_FETCH }: VaultsInnerProps) {
-  const [vaults, setVaults] = useState<Vault[]>([]);
-  const [status, setStatus] = useState<"loading" | "empty" | "data" | "error">(
-    "loading",
-  );
-  const [retryCount, setRetryCount] = useState(0);
-  const [viewMode, setViewMode] = useState<"list" | "grid">(getViewPreference);
-
-  // Filtering and sorting state (keeping defaults)
-  const [statusFilter] = useState<VaultStatus | "all">("all");
-  const [searchQuery] = useState("");
-  const [sortOptions] = useState<VaultSortOptions>({
-    by: "deadline",
-    dir: "asc",
-  });
-
-  // Use a ref so changing the fetchVaults prop identity doesn't re-trigger the effect
-  const fetchRef = useRef(fetchVaults);
-  fetchRef.current = fetchVaults;
+  // Search input with 200ms debounce
+  const [searchInput, setSearchInput] = useState(q);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    setSearchInput(q);
+  }, [q]);
+
+  const updateQueryParams = useCallback(
+    (updates: Partial<typeof queryState>) => {
+      const nextState = { ...queryState, ...updates };
+      const nextParams = serializeVaultsQuery(nextState);
+      setSearchParams(nextParams);
+    },
+    [queryState, setSearchParams],
+  );
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      updateQueryParams({ q: value, page: 1 });
+    }, 200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  const isWalletConnected = Boolean(address?.trim()) && sessionStatus === "authenticated";
+  const normalizedUserAddress = isWalletConnected ? address?.trim() : null;
+  const requiresWallet = scope === "mine" || scope === "verifying";
+
+  // Data fetching
+  useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
-    fetchRef
-      .current()
-      .then((data) => {
-        if (cancelled) return;
-        setVaults(data);
-        setStatus(data.length === 0 ? "empty" : "data");
+    setLoading(true);
+    setError(null);
+
+    // listVaults has no creator filter; scope ("mine"/"verifying") is applied
+    // client-side by filterVaults below.
+    listVaults()
+      .then((loaded) => {
+        if (!cancelled) {
+          setVaults(loaded);
+          setLoading(false);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Could not load vaults.");
+          setLoading(false);
+        }
       });
+
     return () => {
       cancelled = true;
     };
-  }, [retryCount]); // only re-run on explicit retry
+  }, [scope, normalizedUserAddress, reloadToken]);
 
-  const retry = useCallback(() => setRetryCount((c) => c + 1), []);
+  const retry = () => {
+    setReloadToken((prev) => prev + 1);
+  };
 
-  const handleViewChange = useCallback((newView: "list" | "grid") => {
-    setViewMode(newView);
-    setViewPreference(newView);
-  }, []);
+  // Filter and sort
+  const filteredVaults = useMemo(() => {
+    if (!vaults) return [];
+    if (requiresWallet && !isWalletConnected) return [];
+    return filterVaults(vaults, {
+      scope,
+      status,
+      q,
+      userAddress: normalizedUserAddress,
+    });
+  }, [vaults, requiresWallet, isWalletConnected, scope, status, q, normalizedUserAddress]);
 
-  // Apply filters and sorting
-  const filteredVaults = filterVaults(vaults, {
-    status: statusFilter,
-    query: searchQuery,
-  });
-  const sortedVaults = sortVaults(filteredVaults, sortOptions);
+  const sortedVaults = useMemo(() => {
+    return sortVaults(filteredVaults, sort);
+  }, [filteredVaults, sort]);
+
+  // Paginate with clamping
+  const paginationResult = useMemo(() => {
+    return paginate(sortedVaults, page, PAGE_SIZE);
+  }, [sortedVaults, page]);
+
+  // Clamp page in URL if requested page exceeds valid page count after filtering
+  useEffect(() => {
+    if (sortedVaults.length > 0 && page > paginationResult.pageCount) {
+      updateQueryParams({ page: paginationResult.pageCount });
+    }
+  }, [sortedVaults.length, page, paginationResult.pageCount, updateQueryParams]);
+
+  // Tab navigation with keyboard (arrow keys, Home, End)
+  const tabButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    const count = VALID_STATUSES.length;
+    let nextIndex = currentIndex;
+
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      nextIndex = (currentIndex + 1) % count;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      nextIndex = (currentIndex - 1 + count) % count;
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      event.preventDefault();
+      nextIndex = count - 1;
+    } else {
+      return;
+    }
+
+    const nextStatus = VALID_STATUSES[nextIndex];
+    updateQueryParams({ status: nextStatus, page: 1 });
+    tabButtonRefs.current[nextIndex]?.focus();
+  };
+
+  // Refetch automatically when connectivity recovers.
+  useOnRecovered(retry);
 
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "2rem",
-          flexWrap: "wrap",
-          gap: "1rem",
-        }}
-      >
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "var(--spacing-4)" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
         <div>
-          <Text role="display" as="h1" style={{ marginBottom: "0.25rem" }}>
-            Your Vaults
-          </Text>
-          <Text role="body" as="p" style={{ color: "var(--muted)", margin: 0 }}>
-            View and manage your productivity vaults.
+          <Text role="title" as="h1">{t("vaults.title")}</Text>
+          <Text role="body" as="p" style={{ color: "var(--muted)", margin: "4px 0 0" }}>
+            {t("vaults.subtitle")}
           </Text>
         </div>
-        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <div
-            role="radiogroup"
-            aria-label="View mode"
+        <Link to="/vaults/create" className="header-link header-cta">{t("vaults.createCta")}</Link>
+      </div>
+
+      {/* Scope Selector */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        {VALID_SCOPES.map((s) => {
+          const isSelected = scope === s;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => updateQueryParams({ scope: s, page: 1 })}
+              aria-pressed={isSelected}
+              style={{
+                padding: "8px 16px",
+                borderRadius: "var(--radius)",
+                fontWeight: isSelected ? 600 : 500,
+                fontSize: 14,
+                cursor: "pointer",
+                border: "1px solid var(--border)",
+                background: isSelected ? "var(--surface)" : "transparent",
+                color: isSelected ? "var(--text)" : "var(--muted)",
+                boxShadow: isSelected ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
+              }}
+            >
+              {t(SCOPE_LABEL_KEYS[s])}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Search & Sort Bar */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ flex: "1 1 260px" }}>
+          <label htmlFor="vault-search-input" className="sr-only">{t("vaults.search.label")}</label>
+          <input
+            id="vault-search-input"
+            type="search"
+            value={searchInput}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder={t("vaults.search.placeholder")}
+            aria-label={t("vaults.search.ariaLabel")}
             style={{
-              display: "flex",
-              background: "var(--surface)",
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: "var(--radius)",
               border: "1px solid var(--border)",
-              borderRadius: "var(--radius)",
-              padding: "0.25rem",
-            }}
-          >
-            <button
-              onClick={() => handleViewChange("list")}
-              aria-pressed={viewMode === "list"}
-              role="radio"
-              aria-checked={viewMode === "list"}
-              style={{
-                background:
-                  viewMode === "list" ? "var(--accent)" : "transparent",
-                color: viewMode === "list" ? "var(--bg)" : "var(--muted)",
-                border: "none",
-                padding: "0.4rem 0.8rem",
-                borderRadius: "calc(var(--radius) - 0.25rem)",
-                cursor: "pointer",
-                fontSize: 13,
-                fontWeight: 500,
-              }}
-            >
-              List
-            </button>
-            <button
-              onClick={() => handleViewChange("grid")}
-              aria-pressed={viewMode === "grid"}
-              role="radio"
-              aria-checked={viewMode === "grid"}
-              style={{
-                background:
-                  viewMode === "grid" ? "var(--accent)" : "transparent",
-                color: viewMode === "grid" ? "var(--bg)" : "var(--muted)",
-                border: "none",
-                padding: "0.4rem 0.8rem",
-                borderRadius: "calc(var(--radius) - 0.25rem)",
-                cursor: "pointer",
-                fontSize: 13,
-                fontWeight: 500,
-              }}
-            >
-              Grid
-            </button>
-          </div>
-          <Link
-            to="/vaults/create"
-            style={{
-              background: "var(--accent)",
-              color: "var(--bg)",
-              padding: "0.6rem 1.25rem",
-              borderRadius: "var(--radius)",
-              fontWeight: 600,
+              background: "var(--surface)",
+              color: "var(--text)",
+              font: "inherit",
               fontSize: 14,
-              textDecoration: "none",
-              display: "inline-block",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <label htmlFor="vault-sort-select" style={{ fontSize: 14, color: "var(--muted)" }}>
+            {t("vaults.sort.label")}
+          </label>
+          <select
+            id="vault-sort-select"
+            value={sort}
+            onChange={(e) => updateQueryParams({ sort: e.target.value as VaultSort, page: 1 })}
+            aria-label={t("vaults.sort.ariaLabel")}
+            style={{
+              padding: "8px 12px",
+              borderRadius: "var(--radius)",
+              border: "1px solid var(--border)",
+              background: "var(--surface)",
+              color: "var(--text)",
+              font: "inherit",
+              fontSize: 14,
             }}
           >
-            + Create Vault
-          </Link>
+            {VALID_SORTS.map((s) => (
+              <option key={s} value={s}>
+                {t(SORT_LABEL_KEYS[s])}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {status === "loading" && (
-        <div
-          style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}
-        >
-          <Skeleton />
-          <Skeleton />
-          <Skeleton />
-        </div>
-      )}
-
-      {status === "empty" && (
-        <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
-          <Text role="body" as="p">
-            You don’t have any vaults yet.
-          </Text>
-          <Link to="/vaults/create">Create your first vault</Link>
-        </div>
-      )}
-
-      {status === "error" && (
-        <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
-          <Text role="body" as="p">
-            Failed to load vaults.
-          </Text>
-          <button onClick={retry}>Retry</button>
-        </div>
-      )}
-
-      {status === "data" && (
-        <>
-          {viewMode === "list" && (
-            <div
+      {/* Status Filter Tabs */}
+      <div
+        role="tablist"
+        aria-label={t("vaults.status.tablistAria")}
+        style={{ display: "flex", gap: 8, margin: "16px 0", flexWrap: "wrap" }}
+      >
+        {VALID_STATUSES.map((st, idx) => {
+          const isSelected = status === st;
+          return (
+            <button
+              key={st}
+              ref={(el) => {
+                tabButtonRefs.current[idx] = el;
+              }}
+              id={`vaults-tab-${st}`}
+              role="tab"
+              aria-selected={isSelected}
+              aria-controls="vaults-tabpanel"
+              tabIndex={isSelected ? 0 : -1}
+              onClick={() => updateQueryParams({ status: st, page: 1 })}
+              onKeyDown={(e) => handleTabKeyDown(e, idx)}
               style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.75rem",
+                padding: "6px 14px",
+                borderRadius: 999,
+                cursor: "pointer",
+                border: "1px solid var(--border, #8884)",
+                font: "inherit",
+                fontSize: 13,
+                background: isSelected ? "var(--accent)" : "transparent",
+                color: isSelected ? "#fff" : "inherit",
               }}
             >
-              {sortedVaults.map((vault) => (
-                <div
-                  key={vault.id}
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius)",
-                    padding: "1rem 1.25rem",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: "0.75rem",
-                  }}
-                >
-                  <div>
-                    <Text
-                      role="body"
-                      as="div"
-                      style={{ fontWeight: 600, marginBottom: 4 }}
-                    >
-                      {vault.name}
-                    </Text>
-                    <Text
-                      role="caption"
-                      as="div"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      Deadline:{" "}
-                      {new Date(vault.deadline).toLocaleDateString("en-US", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </Text>
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "1rem",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <Text
-                      role="body"
-                      as="span"
-                      style={{ fontWeight: 700, color: "var(--accent)" }}
-                    >
-                      {vault.amount.toLocaleString()} {vault.currency}
-                    </Text>
-                    <StatusChip status={vault.status} />
-                    <Link
-                      to={`/vaults/${vault.id}`}
-                      style={{
-                        color: "var(--accent)",
-                        fontSize: 14,
-                        fontWeight: 600,
-                        textDecoration: "none",
-                      }}
-                    >
-                      View Details
-                    </Link>
-                    <Link
-                      to="/vaults/create"
-                      state={createVaultPrefillFromVault(vault)}
-                      style={{
-                        color: "var(--accent)",
-                        fontSize: 14,
-                        fontWeight: 600,
-                        textDecoration: "none",
-                      }}
-                    >
-                      Duplicate
-                    </Link>
-                  </div>
-                </div>
-              ))}
+              {t(STATUS_LABEL_KEYS[st])}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Main Tabpanel */}
+      <div
+        id="vaults-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`vaults-tab-${status}`}
+      >
+        {/* Error State with Retry */}
+        {error && (
+          <div
+            role="alert"
+            style={{
+              padding: "2rem 1rem",
+              textAlign: "center",
+              background: "var(--danger-transparent, #fff5f5)",
+              border: "1px solid var(--danger, #e53e3e)",
+              borderRadius: "var(--radius)",
+              color: "var(--danger, #e53e3e)",
+              margin: "16px 0",
+            }}
+          >
+            <p style={{ margin: "0 0 12px" }}>{error}</p>
+            <button
+              type="button"
+              onClick={retry}
+              style={{
+                padding: "6px 16px",
+                borderRadius: "var(--radius)",
+                background: "var(--accent)",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                font: "inherit",
+              }}
+            >
+              {t("vaults.retry")}
+            </button>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && !error && (
+          <p aria-live="polite" style={{ color: "var(--muted)", margin: "24px 0" }}>
+            {t("vaults.loading")}
+          </p>
+        )}
+
+        {/* Wallet Connect Prompt when scope requires wallet */}
+        {!loading && !error && requiresWallet && !isWalletConnected && (
+          <div
+            role="main"
+            aria-labelledby="connect-wallet-heading"
+            style={{
+              textAlign: "center",
+              padding: "3rem 1rem",
+              background: "var(--surface)",
+              borderRadius: "var(--radius)",
+              border: "1px solid var(--border)",
+              margin: "16px 0",
+            }}
+          >
+            <h2 id="connect-wallet-heading" style={{ fontSize: "1.25rem", margin: "0 0 8px" }}>
+              Connect your wallet
+            </h2>
+            <p style={{ color: "var(--muted)", margin: "0 0 16px" }}>
+              You need a connected wallet to view {scope === "mine" ? "your created vaults" : "vaults you verify"}.
+            </p>
+            {isConnecting && <p aria-live="polite">Connecting…</p>}
+            <div style={{ display: "inline-block" }}>
+              <WalletConnectButton />
             </div>
-          )}
-          {viewMode === "grid" && (
+            <p style={{ marginTop: "1rem" }}>
+              No Freighter wallet?{" "}
+              <button
+                type="button"
+                onClick={connectDemo}
+                style={{
+                  background: "none",
+                  border: 0,
+                  color: "var(--accent)",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  font: "inherit",
+                }}
+              >
+                Try the demo account
+              </button>
+            </p>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && !error && (!requiresWallet || isWalletConnected) && filteredVaults.length === 0 && (
+          <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--muted)" }}>
+            <p style={{ margin: "0 0 8px" }}>{t("vaults.empty.message")}</p>
+            <p>
+              <Link to="/vaults/create" style={{ color: "var(--accent)" }}>
+                {t("vaults.empty.cta")}
+              </Link>
+            </p>
+          </div>
+        )}
+
+        {/* Vault Grid */}
+        {!loading && !error && (!requiresWallet || isWalletConnected) && filteredVaults.length > 0 && (
+          <>
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                gap: "1rem",
+                gap: 16,
               }}
             >
-              {sortedVaults.map((vault) => (
+              {paginationResult.items.map((v) => (
                 <VaultCard
-                  key={vault.id}
-                  id={vault.id}
-                  name={vault.name}
-                  amount={vault.amount}
-                  currency={vault.currency}
-                  status={vault.status}
-                  deadline={vault.deadline}
-                  progressPct={calculateProgressPct(vault)}
+                  key={v.id}
+                  id={v.id}
+                  name={v.name}
+                  amount={v.amount}
+                  currency={v.currency}
+                  status={v.status}
+                  deadline={v.deadline}
+                  progressPct={vaultProgressPct(v)}
+                  linkTo={`/vaults/${v.id}`}
                 />
               ))}
             </div>
-          )}
-        </>
-      )}
+
+            {/* Pagination Controls */}
+            {paginationResult.pageCount > 1 && (
+              <div style={{ marginTop: 24 }}>
+                <Pagination
+                  pagination={paginationResult}
+                  onPageChange={(newPage) => updateQueryParams({ page: newPage })}
+                  ariaLabel={t("vaults.paginationAria")}
+                />
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
-}
-
-export default function Vaults(props: VaultsInnerProps) {
-  return <VaultsInner {...props} />;
 }

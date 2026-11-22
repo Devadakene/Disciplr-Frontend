@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { useWallet, type WalletNetwork } from '../context/WalletContext';
 import { networkLabel } from '../utils/explorer';
 import { APP_EXPECTED_NETWORK, isNetworkMismatch } from '../utils/networkMismatch';
+import { recordWalletTelemetry } from '../utils/walletTelemetry';
 
 const FREIGHTER_NETWORK_HELP_URL = 'https://docs.freighter.app/';
 
@@ -20,6 +21,7 @@ export function NetworkMismatchBanner({
     () => `${address ?? 'disconnected'}:${network ?? 'unknown'}:${expectedNetwork}`,
     [address, network, expectedNetwork],
   );
+  const showBanner = hasMismatch && dismissedMismatch !== mismatchKey;
 
   useEffect(() => {
     if (!hasMismatch) {
@@ -27,7 +29,35 @@ export function NetworkMismatchBanner({
     }
   }, [hasMismatch]);
 
-  if (!hasMismatch || dismissedMismatch === mismatchKey) {
+  // Telemetry on visibility transitions only — never re-emitted on unrelated
+  // re-renders, so rapid network checks cannot spam the diagnostics buffer.
+  const prevShownRef = useRef(false);
+  useEffect(() => {
+    if (showBanner && !prevShownRef.current) {
+      recordWalletTelemetry({
+        event: 'wallet.network.mismatch_shown',
+        ts: Date.now(),
+        network: network ?? 'unknown',
+        expectedNetwork,
+      });
+    }
+    prevShownRef.current = showBanner;
+  }, [showBanner, network, expectedNetwork]);
+
+  const prevMismatchRef = useRef(hasMismatch);
+  useEffect(() => {
+    if (!hasMismatch && prevMismatchRef.current) {
+      recordWalletTelemetry({
+        event: 'wallet.network.recovered',
+        ts: Date.now(),
+        network: network ?? 'unknown',
+        expectedNetwork,
+      });
+    }
+    prevMismatchRef.current = hasMismatch;
+  }, [hasMismatch, network, expectedNetwork]);
+
+  if (!showBanner) {
     return null;
   }
 
@@ -72,7 +102,15 @@ export function NetworkMismatchBanner({
         <button
           type="button"
           aria-label="Dismiss network mismatch warning"
-          onClick={() => setDismissedMismatch(mismatchKey)}
+          onClick={() => {
+            setDismissedMismatch(mismatchKey);
+            recordWalletTelemetry({
+              event: 'wallet.network.dismissed',
+              ts: Date.now(),
+              network: network ?? 'unknown',
+              expectedNetwork,
+            });
+          }}
           style={{
             background: 'transparent',
             border: 'none',

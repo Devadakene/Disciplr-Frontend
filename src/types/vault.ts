@@ -46,16 +46,19 @@ export interface Milestone {
   criteria: string;
   status: MilestoneStatus;
   validatedAt?: string;
+  dueDate?: string;
   evidenceUrl?: string;
 }
 
-/** A lightweight on-chain transaction record stored on the Vault itself. */
+/** A weightless on-chain transaction record stored on the Vault itself. */
 export interface VaultTransaction {
   id: string;
   type: TxType;
   hash: string;
   timestamp: string;
   amount?: number;
+  /** Exact decimal string from the API, preserved so display avoids IEEE-754 float precision loss. */
+  rawAmount?: string;
 }
 
 /** Full vault record — canonical shape used across all pages. */
@@ -64,6 +67,8 @@ export interface Vault {
   name: string;
   status: VaultStatus;
   amount: number;
+  /** Exact decimal string from the API, preserved so display avoids IEEE-754 float precision loss. */
+  rawAmount?: string;
   currency: string;
   createdAt: string;
   deadline: string;
@@ -75,3 +80,10 @@ export interface Vault {
   milestones: Milestone[];
   transactions: VaultTransaction[];
 }
+
+/**
+ * Actions a wallet can perform on a vault. Shared between the UI
+ * (`VaultDetail`), the service seam (`submitVaultAction`), and the
+ * permission evaluator (`evalVaultActionAuth`).
+ */
+export type VaultAction = 'validate_milestone' | 'extend_deadline' | 'cancel_vault';

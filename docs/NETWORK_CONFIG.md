@@ -212,6 +212,33 @@ connected wallet reports a different or unsupported network. `Layout` mounts
 `NetworkMismatchBanner` globally so users see the warning before creating or
 validating vaults.
 
+### Wallet connect timeout
+
+`VITE_WALLET_CONNECT_TIMEOUT_MS` bounds how long a single Freighter connect
+attempt may take before the attempt is abandoned with an inline timeout error.
+It is read in `src/context/WalletContext.tsx` (exported as `CONNECT_TIMEOUT_MS`)
+and clamped to `[5_000, 120_000]` ms by `resolveConnectTimeoutMs` in
+`src/utils/walletTelemetry.ts`; missing, malformed, or out-of-range values fall
+back to the 30 s default so a bad env value can never disable the bound.
+
+### Feature invariants and operational visibility
+
+- **Bounded concurrency**: `connect()` in `WalletContext` is single-flight — a
+  second call while one attempt is in flight returns the in-flight promise
+  instead of stacking Freighter authorization prompts. `WalletSelectionModal`
+  additionally ignores clicks while an attempt is pending.
+- **Bounded polling**: the balance watcher polls at `BALANCE_REFRESH_INTERVAL`,
+  pauses while the tab is hidden, and cancels the previous in-flight Horizon
+  request via `AbortController` so at most one balance request is outstanding.
+- **Bounded memory**: `recordWalletTelemetry` in `src/utils/walletTelemetry.ts`
+  appends every event to a ring buffer capped at `WALLET_TELEMETRY_BUFFER_LIMIT`
+  (100) entries.
+- **Privacy-safe diagnostics**: telemetry events never include addresses, keys,
+  or raw error messages — failures carry a stable `errorCode`. See
+  `src/utils/walletTelemetry.ts` for the event catalog
+  (`wallet.connect.*`, `wallet.network.*`). Production deployments can wire a
+  real metrics backend via `setWalletTelemetrySink`.
+
 ---
 
 ## 7. Checklist — Adding or Changing a Network
@@ -268,6 +295,7 @@ issuer address.
 | [`src/utils/horizon.ts`](../src/utils/horizon.ts) | `HORIZON_URLS`, `USDC_ISSUERS`, `fetchUsdcBalance`, `HorizonBalanceError` |
 | [`src/utils/explorer.ts`](../src/utils/explorer.ts) | `EXPLORER_BASES`, `getExplorerTxUrl`, `getExplorerAccountUrl`, `contractExplorerUrl`, `networkLabel` |
 | [`src/utils/networkMismatch.ts`](../src/utils/networkMismatch.ts) | `APP_EXPECTED_NETWORK`, `resolveExpectedNetwork`, `isNetworkMismatch` |
+| [`src/utils/walletTelemetry.ts`](../src/utils/walletTelemetry.ts) | `recordWalletTelemetry`, `classifyConnectError`, `resolveConnectTimeoutMs`, bounded ring buffer |
 | [`src/components/NetworkMismatchBanner.tsx`](../src/components/NetworkMismatchBanner.tsx) | Global warning for connected wallets on the wrong network |
 | [`src/context/WalletContext.tsx`](../src/context/WalletContext.tsx) | `WalletNetwork` type, `normalizeNetwork`, `fetchNetworkAndBalance` |
 | [`src/utils/stellarAddress.ts`](../src/utils/stellarAddress.ts) | `isValidStellarAddress` — used by explorer helpers to guard empty/invalid addresses |

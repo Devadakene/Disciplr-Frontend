@@ -1,18 +1,146 @@
 import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type Root } from 'react-dom/client'
 import App from './App'
+import './tailwind.css'
+import './styles/tokens.generated.css'
+import './styles/semantic.css'
 import './index.css'
-import { reportWebVitals } from './utils/reportWebVitals'
+import { reportWebVitals, type Metric } from './utils/reportWebVitals'
+import { createVitalsSink } from './utils/vitalsSink'
+import { logger as appLogger, configureLogger } from './utils/logger'
 
-reportWebVitals((metric) => {
-  console.log('[Web Vitals]', metric)
+configureLogger({
+  level: import.meta.env.PROD ? 'error' : 'debug',
 })
+import { installGlobalErrorHandlers } from './utils/errorReporter'
 
-const rootEl = document.getElementById('root')
-if (!rootEl) throw new Error('Root element #root not found')
+/**
+ * Entry point invariants:
+ * 1. The #root element must exist and be an HTMLElement before React attaches.
+ * 2. Mounting must happen at most once per document, even under concurrent calls.
+ * 3. Web vitals reporting must never throw into the bootstrap path.
+ * 4. Failures must be surfaced through a user-visible error without leaking sensitive data.
+ */
 
-createRoot(rootEl).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+export interface BootstrapOptions {
+  /** Document to query for the root element. Defaults to the global document. */
+  document?: Document
+  /** Id of the root element. Defaults to 'root'. */
+  rootId?: string
+  /** Optional callback for web vitals. */
+  onWebVital?: (value: unknown) => void
+  /** Optional logger for diagnostics. */
+  logger?: { info: (... args: unknown[]) => void; error: (... args: unknown[]) => void }
+}
+
+export const REPORT_WEB_VITALS_FAILURE_LOG = '[Web Vitals] reporting failed'
+
+function isHtmlElement(value: unknown): value is HTMLElement {
+  return typeof HTMLElement !== 'undefined' && value instanceof HTMLElement
+}
+
+function resolveRootElement(doc: Document, rootId: string): HTMLElement {
+  if (typeof rootId !== 'string' || rootId.trim().length === 0) {
+    throw new Error('Root element id must be a non-empty string')
+  }
+
+  const el = doc.getElementById(rootId)
+  if (!el) {
+    throw new Error(`Root element #${rootId} not found`)
+  }
+  if (!isHtmlElement(el)) {
+    throw new Error(`Root element #${rootId} is not an HTMLElement`)
+  }
+  return el
+}
+
+function safeReportWebVitals(
+  onWebVital: (value: unknown) => void,
+  logger: { info: (... args: unknown[]) => void; error: (... args: unknown[]) => void },
+): void {
+  try {
+    reportWebVitals((value) => {
+      try {
+        onWebVital(value)
+      } catch (error) {
+        // A consumer callback failure must not break the bootstrap path.
+        logger.error(REPORT_WEB_VITALS_FAILURE_LOG, error)
+      }
+    })
+  } catch (error) {
+    // reportWebVitals itself failing must not crash the app.
+    logger.error(REPORT_WEB_VITALS_FAILURE_LOG, error)
+  }
+}
+
+/**
+ * Default vitals handler: routes metrics to the opt-in vitals sink, which
+ * logs via the dev-only logger and batches to VITE_VITALS_ENDPOINT when
+ * configured. Production builds therefore emit no console output for vitals.
+ */
+function defaultVitalsHandler(
+  logger: { info: (... args: unknown[]) => void; error: (... args: unknown[]) => void },
+): (value: unknown) => void {
+  try {
+    const sink = createVitalsSink()
+    return (value) => sink.onMetric(value as Metric)
+  } catch (error) {
+    logger.error(REPORT_WEB_VITALS_FAILURE_LOG, error)
+    return () => {}
+  }
+}
+
+function renderErrorUI(el: HTMLElement, message: string): void {
+  el.setAttribute('role', 'alert')
+  el.setAttribute('data-app-error', 'true')
+  el.textContent = message
+}
+
+export function bootstrap(options: BootstrapOptions = {}): Root {
+  const doc = options.document ?? document
+  const rootId = options.rootId ?? 'root'
+  const logger = options.logger ?? appLogger
+  const onWebVital = options.onWebVital ?? defaultVitalsHandler(logger)
+
+  // Resolve and validate the root element before any side effects.
+  const rootEl = resolveRootElement(doc, rootId)
+
+  // Guard against concurrent double mounting on the same element.
+  if (rootEl.getAttribute('data-app-mounted') === 'true') {
+    throw new Error(`Root element #${rootId} is already mounted`)
+  }
+  rootEl.setAttribute('data-app-mounted', 'true')
+
+  // Capture async failures that React error boundaries cannot see (unhandled
+  // rejections, errors raised outside render). Installed before mounting so a
+  // failure during the first render is still reported.
+  try {
+    installGlobalErrorHandlers()
+  } catch (error) {
+    // Global capture is best-effort; it must never prevent the app from mounting.
+    logger.error('[Bootstrap] failed to install global error handlers', error)
+  }
+
+  safeReportWebVitals(onWebVital, logger)
+
+  try {
+    const root = createRoot(rootEl)
+    root.render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    )
+    return root
+  } catch (error) {
+    // Roll back mount marker so a retry can succeed, and surface a safe message.
+    rootEl.removeAttribute('data-app-mounted')
+    renderErrorUI(rootEl, 'Something went wrong while starting the app.')
+    logger.error('[Bootstrap] failed to mount the application', error)
+    throw error
+  }
+}
+
+// Auto-bootstrap only in a browser environment with a document.
+if (typeof document !== 'undefined') {
+  bootstrap()
+}

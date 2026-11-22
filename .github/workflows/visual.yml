@@ -1,0 +1,59 @@
+name: Visual Regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      update:
+        description: 'Regenerate baselines (uploaded as the visual-baselines artefact)'
+        type: boolean
+        default: false
+  # No committed baselines yet (e2e/visual/__screenshots__/ is empty), so this
+  # workflow is manual-only. Run it with update=true to generate baselines,
+  # download the visual-baselines artefact, commit it, then re-enable
+  # pull_request triggers if desired.
+
+concurrency:
+  group: visual-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual:
+    name: Playwright visual snapshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      # Pinned image: keep the version in sync with @playwright/test in package.json.
+      image: mcr.microsoft.com/playwright:v1.49.1-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Regenerate baselines
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.update }}
+        run: pnpm run test:visual:update
+        env:
+          HOME: /root
+      - name: Upload regenerated baselines
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.update }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: e2e/visual/__screenshots__/
+      - name: Run visual tests
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.update }}
+        run: pnpm run test:visual
+        env:
+          HOME: /root
+      - name: Upload diff artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: |
+            test-results/visual/
+            playwright-report/
+          retention-days: 7

@@ -1,378 +1,306 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { vi } from "vitest";
-import Vaults, { VaultsInner } from "../../pages/Vaults";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import Vaults from "../Vaults";
+import * as vaultService from "../../services/vaultService";
 import type { Vault } from "../../types/vault";
 
-// Helper to mock fetch function
-const mockSuccess = <T,>(data: T) => vi.fn().mockResolvedValue(data);
-const mockFailure = (message = "Network error") =>
-  vi.fn().mockRejectedValue(new Error(message));
+const mockUseWallet = vi.fn();
+vi.mock("../../context/WalletContext", () => ({
+  useWallet: () => mockUseWallet(),
+}));
 
-function CreateVaultStateProbe() {
+vi.mock("../../components/Wallet/WalletConnectButton", () => ({
+  WalletConnectButton: () => <button>Connect Wallet</button>,
+}));
+
+function LocationDisplay() {
   const location = useLocation();
-  return (
-    <pre data-testid="create-vault-state">
-      {JSON.stringify(location.state ?? {})}
-    </pre>
+  return <div data-testid="location-display">{location.pathname + location.search}</div>;
+}
+
+function renderVaults(initialEntry = "/vaults") {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Vaults />
+      <LocationDisplay />
+    </MemoryRouter>,
   );
 }
 
-// Mock localStorage
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-  return {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => {
-      store[key] = value.toString();
-    },
-    removeItem: (key: string) => {
-      delete store[key];
-    },
-    clear: () => {
-      store = {};
-    },
-  };
-})();
+function generateVaults(count: number): Vault[] {
+  const result: Vault[] = [];
+  for (let i = 1; i <= count; i++) {
+    result.push({
+      id: `vault-${i}`,
+      name: `Vault ${i}`,
+      status: i % 2 === 0 ? "active" : "completed",
+      amount: 100 * i,
+      currency: "USDC",
+      createdAt: new Date(2026, 0, i).toISOString(),
+      deadline: new Date(2026, 5, i).toISOString(),
+      creatorAddress: i <= 5 ? "GCREATOR_USER" : `GCREATOR_${i}`,
+      verifierAddress: i >= 5 && i <= 8 ? "GVERIFIER_USER" : `GVERIFIER_${i}`,
+      successAddress: "GSUCC",
+      failureAddress: "GFAIL",
+      contractAddress: `GCONT_${i}`,
+      milestones: [
+        {
+          id: `m-${i}-1`,
+          title: "Milestone 1",
+          description: "Desc",
+          criteria: "Crit",
+          status: "validated",
+        },
+      ],
+      transactions: [],
+    });
+  }
+  return result;
+}
 
-// Mock matchMedia for Tooltip
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: vi.fn().mockImplementation((query) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // deprecated
-    removeListener: vi.fn(), // deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
+describe("Vaults Explorer Page", () => {
+  const mockVaults = generateVaults(50);
 
-// Mock localStorage
-Object.defineProperty(window, "localStorage", { value: localStorageMock });
-
-describe("Vaults page states", () => {
   beforeEach(() => {
-    localStorageMock.clear();
+    vi.clearAllMocks();
+    vi.spyOn(vaultService, "listVaults").mockResolvedValue(mockVaults);
+    mockUseWallet.mockReturnValue({
+      address: null,
+      isConnecting: false,
+      sessionStatus: "anonymous",
+      connectDemo: vi.fn(),
+    });
   });
 
-  test("shows loading skeletons initially", async () => {
-    render(<Vaults fetchVaults={mockSuccess([])} />);
-    // Skeletons should be present immediately
-    const skeletons = screen.getAllByTestId("skeleton");
-    expect(skeletons.length).toBeGreaterThanOrEqual(3);
-    // Wait for loading to finish (no data)
-    await waitFor(() =>
-      expect(screen.queryByTestId("skeleton")).not.toBeInTheDocument(),
-    );
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  test("shows empty state when no vaults", async () => {
-    render(<Vaults fetchVaults={mockSuccess([])} />);
-    await waitFor(() => screen.getByText(/You don’t have any vaults yet./i));
-    expect(
-      screen.getByRole("link", { name: /Create your first vault/i }),
-    ).toBeInTheDocument();
+  it("restores exact view from URL parameters on initial load", async () => {
+    mockUseWallet.mockReturnValue({
+      address: "GCREATOR_USER",
+      isConnecting: false,
+      sessionStatus: "authenticated",
+      connectDemo: vi.fn(),
+    });
+
+    renderVaults("/vaults?scope=mine&status=active&q=Vault&sort=-amount&page=1");
+
+    await waitFor(() => {
+      expect(screen.queryByText(/loading vaults/i)).not.toBeInTheDocument();
+    });
+
+    // Vaults are fetched once; the "mine" scope is applied client-side
+    expect(vaultService.listVaults).toHaveBeenCalled();
+
+    // Scope 'mine' should be pressed
+    const mineScopeBtn = screen.getByRole("button", { name: "Created by me" });
+    expect(mineScopeBtn).toHaveAttribute("aria-pressed", "true");
+
+    // Status 'active' tab should be selected
+    const activeTab = screen.getByRole("tab", { name: /active/i });
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+
+    // Search input should have 'Vault'
+    const searchInput = screen.getByLabelText(/search vaults/i) as HTMLInputElement;
+    expect(searchInput.value).toBe("Vault");
   });
 
-  test("shows data state when vaults exist", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as const,
-        deadline: "2025-01-01T00:00:00Z",
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-    expect(screen.getByText(/Test Vault/i)).toBeInTheDocument();
+  it("falls back to defaults gracefully without errors on invalid parameters", async () => {
+    renderVaults("/vaults?scope=invalid&status=hacked&sort=random&page=-5");
+
+    await waitFor(() => {
+      expect(screen.queryByText(/loading vaults/i)).not.toBeInTheDocument();
+    });
+
+    const allScopeBtn = screen.getByRole("button", { name: "All Vaults" });
+    expect(allScopeBtn).toHaveAttribute("aria-pressed", "true");
+
+    const allTab = screen.getByRole("tab", { name: /^all$/i });
+    expect(allTab).toHaveAttribute("aria-selected", "true");
   });
 
-  test("duplicate action navigates to CreateVault with prefilled state", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as const,
-        deadline: "2025-01-01T00:00:00Z",
-        successAddress: "GSUCC3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK",
-        failureAddress: "GFAIL3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK",
-        milestones: [{ title: "Milestone A", criteria: "Criteria A" }],
-        createdAt: "2024-01-01T00:00:00Z",
-        creatorAddress: "GCREA3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK",
-        contractAddress: "GCONT3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK",
-        transactions: [],
-      },
-    ];
+  it("paginates 12 items per page with 50 vaults and navigates pages", async () => {
+    renderVaults("/vaults");
 
-    render(
-      <MemoryRouter initialEntries={["/vaults"]}>
-        <Routes>
-          <Route
-            path="/vaults"
-            element={<VaultsInner fetchVaults={mockSuccess(mockData)} />}
-          />
-          <Route path="/vaults/create" element={<CreateVaultStateProbe />} />
-        </Routes>
+    await waitFor(() => {
+      expect(screen.queryByText(/loading vaults/i)).not.toBeInTheDocument();
+    });
+
+    // 12 vaults rendered on page 1
+    const cards = screen.getAllByRole("link").filter((l) => l.getAttribute("href")?.startsWith("/vaults/vault-"));
+    expect(cards).toHaveLength(12);
+
+    // Pagination info
+    expect(screen.getByText(/page 1 of 5/i)).toBeInTheDocument();
+
+    // Navigate to page 2
+    const nextBtn = screen.getByRole("button", { name: /go to next page/i });
+    fireEvent.click(nextBtn);
+
+    expect(screen.getByTestId("location-display")).toHaveTextContent("page=2");
+  });
+
+  it("resets to page 1 when filter or search changes", async () => {
+    vi.useFakeTimers();
+    renderVaults("/vaults?page=3");
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    // Change status tab
+    const activeTab = screen.getByRole("tab", { name: /active/i });
+    fireEvent.click(activeTab);
+
+    expect(screen.getByTestId("location-display")).toHaveTextContent("status=active");
+    expect(screen.getByTestId("location-display")).not.toHaveTextContent("page=3");
+
+    // Search input change debounces and resets page
+    const searchInput = screen.getByLabelText(/search vaults/i);
+    fireEvent.change(searchInput, { target: { value: "test" } });
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(screen.getByTestId("location-display")).toHaveTextContent("q=test");
+    expect(screen.getByTestId("location-display")).not.toHaveTextContent("page=");
+
+    vi.useRealTimers();
+  });
+
+  it("handles keyboard navigation across tabs (ArrowRight, ArrowLeft, Home, End)", async () => {
+    renderVaults("/vaults");
+
+    await waitFor(() => {
+      expect(screen.queryByText(/loading vaults/i)).not.toBeInTheDocument();
+    });
+
+    const allTab = screen.getByRole("tab", { name: /^all$/i });
+    allTab.focus();
+    expect(allTab).toHaveFocus();
+
+    // ArrowRight moves to 'Active'
+    fireEvent.keyDown(allTab, { key: "ArrowRight" });
+    const activeTab = screen.getByRole("tab", { name: /active/i });
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
+    expect(activeTab).toHaveFocus();
+
+    // End key moves to last tab ('Cancelled')
+    fireEvent.keyDown(activeTab, { key: "End" });
+    const cancelledTab = screen.getByRole("tab", { name: /cancelled/i });
+    expect(cancelledTab).toHaveAttribute("aria-selected", "true");
+    expect(cancelledTab).toHaveFocus();
+
+    // Home key moves back to first tab ('All')
+    fireEvent.keyDown(cancelledTab, { key: "Home" });
+    expect(screen.getByRole("tab", { name: /^all$/i })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows connect prompt when scope=mine or scope=verifying and wallet is disconnected", async () => {
+    mockUseWallet.mockReturnValue({
+      address: null,
+      isConnecting: false,
+      sessionStatus: "anonymous",
+      connectDemo: vi.fn(),
+    });
+
+    renderVaults("/vaults?scope=mine");
+
+    await waitFor(() => {
+      expect(screen.queryByText(/loading vaults/i)).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("heading", { name: /connect your wallet/i })).toBeInTheDocument();
+    expect(screen.getByText(/you need a connected wallet to view your created vaults/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /connect wallet/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /try the demo account/i })).toBeInTheDocument();
+  });
+
+  it("shows connect prompt if wallet disconnects while on scope=mine", async () => {
+    const { rerender } = renderVaults("/vaults?scope=mine");
+
+    mockUseWallet.mockReturnValue({
+      address: "GADDR",
+      isConnecting: false,
+      sessionStatus: "authenticated",
+      connectDemo: vi.fn(),
+    });
+
+    rerender(
+      <MemoryRouter initialEntries={["/vaults?scope=mine"]}>
+        <Vaults />
+        <LocationDisplay />
       </MemoryRouter>,
     );
 
-    await waitFor(() => screen.getByText("Test Vault"));
-    await userEvent.click(screen.getByRole("link", { name: /duplicate/i }));
-
-    const state = JSON.parse(
-      screen.getByTestId("create-vault-state").textContent ?? "{}",
-    );
-    expect(state.createVaultPrefill).toMatchObject({
-      sourceVaultId: "1",
-      sourceVaultName: "Test Vault",
-      amount: "1000",
-      successAddress: "GSUCC3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK",
-      failureAddress: "GFAIL3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK",
-      milestones: [{ title: "Milestone A", criteria: "Criteria A" }],
-    });
-    expect(state.createVaultPrefill).not.toHaveProperty("deadline");
-  });
-
-  test("shows error state and can retry", async () => {
-    const fetchMock = mockFailure();
-    render(<Vaults fetchVaults={fetchMock} />);
-    await waitFor(() => screen.getByText(/Failed to load vaults./i));
-    const retryBtn = screen.getByRole("button", { name: /Retry/i });
-    expect(retryBtn).toBeInTheDocument();
-    // Mock success on retry
-    fetchMock.mockImplementationOnce(() => Promise.resolve([]));
-    await userEvent.click(retryBtn);
-    await waitFor(() => screen.getByText(/You don’t have any vaults yet./i));
-  });
-});
-
-describe("Vaults view toggle", () => {
-  beforeEach(() => {
-    localStorageMock.clear();
-  });
-
-  test("defaults to list view when no preference exists", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-
-    const listButton = screen.getByRole("radio", { name: "List" });
-    const gridButton = screen.getByRole("radio", { name: "Grid" });
-
-    expect(listButton).toHaveAttribute("aria-checked", "true");
-    expect(gridButton).toHaveAttribute("aria-checked", "false");
-  });
-
-  test("switches to grid view when grid button is clicked", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-
-    const gridButton = screen.getByRole("radio", { name: "Grid" });
-    await userEvent.click(gridButton);
-
-    await waitFor(() =>
-      expect(gridButton).toHaveAttribute("aria-checked", "true"),
-    );
-    await waitFor(() =>
-      expect(screen.getByRole("radio", { name: "List" })).toHaveAttribute(
-        "aria-checked",
-        "false",
-      ),
-    );
-  });
-
-  test("switches back to list view when list button is clicked", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-
-    const gridButton = screen.getByRole("radio", { name: "Grid" });
-    await userEvent.click(gridButton);
-
-    const listButton = screen.getByRole("radio", { name: "List" });
-    await userEvent.click(listButton);
-
-    await waitFor(() =>
-      expect(listButton).toHaveAttribute("aria-checked", "true"),
-    );
-    await waitFor(() =>
-      expect(gridButton).toHaveAttribute("aria-checked", "false"),
-    );
-  });
-
-  test("persists grid view preference to localStorage", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-
-    const gridButton = screen.getByRole("radio", { name: "Grid" });
-    await userEvent.click(gridButton);
-
-    await waitFor(() =>
-      expect(gridButton).toHaveAttribute("aria-checked", "true"),
-    );
-    expect(localStorageMock.getItem("vaults-view-preference")).toBe("grid");
-  });
-
-  test("persists list view preference to localStorage", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-
-    const gridButton = screen.getByRole("radio", { name: "Grid" });
-    await userEvent.click(gridButton);
-
-    const listButton = screen.getByRole("radio", { name: "List" });
-    await userEvent.click(listButton);
-
-    await waitFor(() =>
-      expect(listButton).toHaveAttribute("aria-checked", "true"),
-    );
-    expect(localStorageMock.getItem("vaults-view-preference")).toBe("list");
-  });
-
-  test("loads grid view from localStorage preference", async () => {
-    localStorageMock.setItem("vaults-view-preference", "grid");
-
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-
-    const gridButton = screen.getByRole("radio", { name: "Grid" });
-    const listButton = screen.getByRole("radio", { name: "List" });
-
-    expect(gridButton).toHaveAttribute("aria-checked", "true");
-    expect(listButton).toHaveAttribute("aria-checked", "false");
-  });
-
-  test("shows empty state in both views", async () => {
-    render(<Vaults fetchVaults={mockSuccess([])} />);
-    await waitFor(() => screen.getByText(/You don’t have any vaults yet./i));
-
-    // Toggle buttons should still be present
-    expect(screen.getByRole("radio", { name: "List" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Grid" })).toBeInTheDocument();
-  });
-
-  test("renders vaults VaultCard in grid view", async () => {
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
-    await waitFor(() => screen.getByText("Test Vault"));
-
-    const gridButton = screen.getByRole("radio", { name: "Grid" });
-    await userEvent.click(gridButton);
-
-    // VaultCard should be rendered with progress bar
-    await waitFor(() => screen.getByLabelText(/Test Vault progress/i));
-  });
-
-  test("handles localStorage errors gracefully", async () => {
-    // Mock localStorage to throw error
-    const originalGetItem = localStorageMock.getItem;
-    localStorageMock.getItem = vi.fn(() => {
-      throw new Error("localStorage error");
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: /connect your wallet/i })).not.toBeInTheDocument();
     });
 
-    const mockData = [
-      {
-        id: "1",
-        name: "Test Vault",
-        amount: 1000,
-        currency: "USDC",
-        status: "active" as any,
-        deadline: "2025-01-01T00:00:00Z",
-        milestones: [],
-      },
-    ];
-    render(<Vaults fetchVaults={mockSuccess(mockData)} />);
+    // Now disconnect
+    mockUseWallet.mockReturnValue({
+      address: null,
+      isConnecting: false,
+      sessionStatus: "anonymous",
+      connectDemo: vi.fn(),
+    });
 
-    // Should still render with default list view
-    await waitFor(() => screen.getByText("Test Vault"));
-    expect(screen.getByRole("radio", { name: "List" })).toHaveAttribute(
-      "aria-checked",
-      "true",
+    rerender(
+      <MemoryRouter initialEntries={["/vaults?scope=mine"]}>
+        <Vaults />
+        <LocationDisplay />
+      </MemoryRouter>,
     );
 
-    localStorageMock.getItem = originalGetItem;
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /connect your wallet/i })).toBeInTheDocument();
+    });
+  });
+
+  it("displays error with working Retry button when load fails", async () => {
+    const listSpy = vi.spyOn(vaultService, "listVaults")
+      .mockRejectedValueOnce(new Error("Network exploded"))
+      .mockResolvedValueOnce(mockVaults);
+
+    renderVaults("/vaults");
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Network exploded");
+    });
+
+    const retryBtn = screen.getByRole("button", { name: /retry/i });
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("link").filter((l) => l.getAttribute("href")?.startsWith("/vaults/vault-")).length).toBeGreaterThan(0);
+    });
+
+    expect(listSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes correct ARIA semantics for tablist and tabpanel", async () => {
+    renderVaults("/vaults");
+
+    await waitFor(() => {
+      expect(screen.queryByText(/loading vaults/i)).not.toBeInTheDocument();
+    });
+
+    const tablist = screen.getByRole("tablist", { name: /filter vaults by status/i });
+    expect(tablist).toBeInTheDocument();
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.length).toBe(6);
+
+    const activeTab = tabs.find((t) => t.getAttribute("aria-selected") === "true");
+    expect(activeTab).toBeDefined();
+    expect(activeTab).toHaveAttribute("aria-controls", "vaults-tabpanel");
+
+    const tabpanel = screen.getByRole("tabpanel");
+    expect(tabpanel).toHaveAttribute("aria-labelledby", activeTab?.id);
   });
 });

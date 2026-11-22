@@ -5,6 +5,8 @@
  * Handles totals, averages, and period-over-period deltas with edge case coverage.
  */
 
+import { formatUsdc } from './format'
+
 export interface AnalyticsDataPoint {
   name: string
   success: number
@@ -130,5 +132,5 @@ export function formatPercentage(value: number, decimals: number = 0): string {
  * @returns Formatted string (e.g., "$12,450", "$3,200")
  */
 export function formatCurrency(value: number): string {
-  return `$${Math.round(value).toLocaleString()}`
+  return `$${formatUsdc(Math.round(value), { exact: true })}`
 }

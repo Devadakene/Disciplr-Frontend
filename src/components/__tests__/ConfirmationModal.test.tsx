@@ -145,4 +145,26 @@ describe('ConfirmationModal', () => {
       screen.getByText(/Rejection will notify the vault owner/i),
     ).toBeInTheDocument();
   });
+
+  it('locks the confirm button while a submission is in flight', () => {
+    renderModal({ initialDecision: 'approve', isSubmitting: true });
+
+    const confirm = screen.getByRole('button', { name: /Submitting/ });
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close modal' })).toBeDisabled();
+
+    fireEvent.click(confirm);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('locks simple confirmations while submitting', () => {
+    renderModal({
+      simpleConfirm: { title: 'Cancel vault', message: 'Irreversible.' },
+      isSubmitting: true,
+    });
+
+    const confirm = screen.getByRole('button', { name: /Submitting/ });
+    expect(confirm).toBeDisabled();
+  });
 });

@@ -1,188 +1,265 @@
-import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
-import { MilestoneTracker } from "../components/MilestoneTracker";
-import { VaultProgressBar } from "../components/VaultProgressBar";
-import { VaultLifecycle } from "../components/VaultLifecycle";
-import { CountdownDeadline } from "../components/CountdownDeadline";
-import Breadcrumb from "../components/Breadcrumb";
-import {
-  FundReleaseStatus,
-  type FundReleaseStatusProps,
-} from "../components/FundReleaseStatus";
-import { VaultMetaPanel } from "../components/VaultMetaPanel";
-import { Text } from "../components/Text";
+import { useParams } from "react-router-dom";
 import { useWallet } from "../context/WalletContext";
-import { MASTER_VAULTS as MOCK_VAULTS } from "../fixtures/vaults";
-import { contractExplorerUrl, networkLabel } from "../utils/explorer";
-import { isValidIcsDeadline, downloadIcsEvent } from "../utils/ics";
-import { createVaultPrefillFromVault } from "../utils/vaultPrefill";
-import type { Vault, VaultStatus } from "../types/vault";
+import { useVaultDetail } from "../hooks/useVaultDetail";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { useOnRecovered } from "../hooks/useOnRecovered";
+import {
+  ErrorView,
+  InvalidIdView,
+  LoadingView,
+  MalformedView,
+  NotFoundView,
+} from "../components/vault/VaultStateViews";
+import { VaultDetailContent } from "../components/vault/VaultDetailContent";
 
-// ── Types imported from canonical source ─────────────────────────────────────
-// Vault and VaultStatus are imported from "../types/vault" above.
-// MOCK_VAULTS has moved to "../services/vaultService" as the master dataset.
+export default function VaultDetail() {
+  const { id } = useParams<{ id: string }>();
+  const { view, retry } = useVaultDetail(id);
+  const { address, network } = useWallet();
+  // Page title is "<vault name> · Disciplr" (see useDocumentTitle).
+  useDocumentTitle(view.status === "ready" ? view.vault.name : "");
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const STATUS_CONFIG: Record<
-  VaultStatus,
-  { label: string; color: string; bg: string }
-> = {
-  active: {
-    label: "Active",
-    color: "var(--accent)",
-    bg: "var(--accent-transparent)",
-  },
-  completed: {
-    label: "Completed",
-    color: "var(--success)",
-    bg: "rgba(16,185,129,0.1)",
-  },
-  failed: {
-    label: "Failed",
-    color: "var(--danger)",
-    bg: "rgba(239,68,68,0.1)",
-  },
-  cancelled: {
-    label: "Cancelled",
-    color: "var(--muted)",
-    bg: "rgba(156,163,175,0.1)",
-  },
-  pending_validation: {
-    label: "Pending Validation",
-    color: "var(--warning)",
-    bg: "rgba(245,158,11,0.1)",
-  },
-};
+  useOnRecovered(retry);
 
-const TX_LABELS: Record<string, string> = {
-  create: "Vault Created",
-  validate: "Milestone Validated",
-  release: "Funds Released",
-  redirect: "Funds Redirected",
-};
-
-function truncHash(hash: string): string {
-  return hash.length > 12 ? `${hash.slice(0, 8)}...${hash.slice(-6)}` : hash;
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function fmtDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function timelineProgress(created: string, deadline: string): number {
-  const start = new Date(created).getTime();
-  const end = new Date(deadline).getTime();
-  const now = Date.now();
-  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
-}
-
-function settlementForVault(vault: Vault): FundReleaseStatusProps {
-  const releaseTx = vault.transactions.find((tx) => tx.type === "release");
-  const redirectTx = vault.transactions.find((tx) => tx.type === "redirect");
-
-  if (vault.status === "completed") {
-    return {
-      outcome: "released",
-      destinationAddress: vault.successAddress,
-      amount: releaseTx?.amount ?? vault.amount,
-      currency: vault.currency,
-      transaction: releaseTx,
-    };
+  switch (view.status) {
+    case "loading":
+      return <LoadingView />;
+    case "invalid-id":
+      return <InvalidIdView id={view.id} />;
+    case "not-found":
+      return <NotFoundView id={view.id} />;
+    case "malformed":
+      return <MalformedView issues={view.issues} onRetry={retry} />;
+    case "error":
+      return <ErrorView id={view.id} onRetry={retry} />;
+    case "ready":
+      return (
+        <VaultDetailContent
+          vault={view.vault}
+          walletAddress={address}
+          walletNetwork={network}
+          onChanged={retry}
+        />
+      );
   }
-
-  if (vault.status === "failed" || vault.status === "cancelled") {
-    return {
-      outcome: "redirected",
-      destinationAddress: vault.failureAddress,
-      amount: redirectTx?.amount ?? vault.amount,
-      currency: vault.currency,
-      transaction: redirectTx,
-    };
-  }
-
-  return {
-    outcome: "pending",
-    amount: vault.amount,
-    currency: vault.currency,
-  };
 }
 
-// ── Section Card ─────────────────────────────────────────────────────────────
-function Card({
-  children,
-  style,
-}: {
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
+// ── Async boundary views ──────────────────────────────────────────────────────
+function LoadingView() {
   return (
-    <div
-      style={{
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-        padding: "1.25rem",
-        ...style,
-      }}
-    >
-      {children}
+    <div style={{ maxWidth: "var(--container-detail)", margin: "0 auto", padding: "0 0 3rem" }}>
+      <div
+        data-testid="vault-detail-loading"
+        style={{
+          height: 96,
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius)",
+          animation: "pulse 1.5s ease-in-out infinite",
+        }}
+      />
     </div>
   );
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
-export default function VaultDetail() {
-  const { id } = useParams<{ id: string }>();
-  const vault = id ? MOCK_VAULTS[id] : undefined;
-  const { network } = useWallet();
-
-  if (!vault) {
-    return (
-      <div style={{ textAlign: "center", padding: "4rem 1rem" }}>
-        <Text role="title" as="h2" style={{ marginBottom: "0.5rem" }}>
-          Vault not found
-        </Text>
-        <Text
-          role="body"
-          as="p"
-          style={{ color: "var(--muted)", marginBottom: "1.5rem" }}
-        >
-          No vault with ID "{id}" exists.
-        </Text>
-        <Link to="/vaults" style={{ color: "var(--accent)" }}>
-          ← Back to Vaults
-        </Link>
+export function EmptyState({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ textAlign: "center", padding: "4rem 1rem" }}>
+      <Text role="title" as="h2" style={{ marginBottom: "0.5rem" }}>
+        {title}
+      </Text>
+      <div
+        style={{
+          color: "var(--muted)",
+          marginBottom: "1.5rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.25rem",
+          alignItems: "center",
+        }}
+      >
+        {children}
       </div>
-    );
-  }
+      <Link to="/vaults" style={{ color: "var(--accent)" }}>
+        ← Back to Vaults
+      </Link>
+    </div>
+  );
+}
 
-  const statusCfg = STATUS_CONFIG[vault.status];
+export function InvalidIdView({ id }: { id: string }) {
+  return (
+    <EmptyState title="Invalid vault identifier">
+      <Text role="body" as="p" style={{ margin: 0 }}>
+        The vault ID "{id}" is not a valid identifier and could not be used.
+      </Text>
+      <Text role="caption" as="p" style={{ margin: 0 }}>
+        Check the link you followed and try again.
+      </Text>
+    </EmptyState>
+  );
+}
+
+export function NotFoundView({ id }: { id: string }) {
+  return (
+    <EmptyState title="Vault not found">
+      <Text role="body" as="p" style={{ margin: 0 }}>
+        No vault with ID "{id}" exists.
+      </Text>
+    </EmptyState>
+  );
+}
+
+function MalformedView({
+  issues,
+  onRetry,
+}: {
+  issues: string[];
+  onRetry: () => void;
+}) {
+  return (
+    <EmptyState title="Vault data could not be verified">
+      <div role="alert" style={{ color: "var(--danger)" }}>
+        The vault response failed validation and its state was not rendered.
+        {issues.length > 0 && (
+          <ul style={{ textAlign: "left", marginTop: "0.5rem" }}>
+            {issues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{
+          marginTop: "0.5rem",
+          background: "transparent",
+          border: "1px solid var(--accent)",
+          color: "var(--accent)",
+          borderRadius: "var(--radius)",
+          padding: "0.4rem 0.9rem",
+          cursor: "pointer",
+          fontSize: 13,
+          fontWeight: 600,
+          minHeight: 36,
+        }}
+      >
+        Retry
+      </button>
+    </EmptyState>
+  );
+}
+
+function ErrorView({ id, onRetry }: { id: string; onRetry: () => void }) {
+  return (
+    <EmptyState title="Failed to load vault">
+      <Text role="body" as="p" style={{ margin: 0 }}>
+        Vault "{id}" could not be loaded right now.
+      </Text>
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{
+          background: "transparent",
+          border: "1px solid var(--accent)",
+          color: "var(--accent)",
+          borderRadius: "var(--radius)",
+          padding: "0.4rem 0.9rem",
+          cursor: "pointer",
+          fontSize: 13,
+          fontWeight: 600,
+          minHeight: 36,
+        }}
+      >
+        Retry
+      </button>
+    </EmptyState>
+  );
+}
+
+// ── Ready content ─────────────────────────────────────────────────────────────
+interface VaultDetailContentProps {
+  vault: Vault;
+  walletAddress: string | null;
+  walletNetwork: WalletNetwork | null;
+  onChanged?: () => void;
+}
+
+function VaultDetailContent({
+  vault,
+  walletAddress,
+  walletNetwork,
+  onChanged,
+}: VaultDetailContentProps) {
+  const { network, connectDemo } = useWallet();
+
+  const [activeAction, setActiveAction] = useState<VaultAction | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const authResults = useMemo(() => {
+    const results = {} as Record<VaultAction, VaultActionAuth>;
+    for (const action of VAULT_ACTIONS) {
+      results[action] = evalVaultActionAuth({
+        action,
+        vault,
+        walletAddress,
+        walletNetwork,
+        expectedNetwork: APP_EXPECTED_NETWORK,
+        mode: isApiMode() ? "api" : "offline",
+      });
+    }
+    return results;
+  }, [vault, walletAddress, walletNetwork]);
+
+  const handleActionClick = (action: VaultAction) => {
+    setActiveAction(action);
+    setActionError(null);
+  };
+
+  const handleModalClose = () => {
+    if (isSubmitting) return;
+    setActiveAction(null);
+    setActionError(null);
+  };
+
+  const handleActionConfirm = async () => {
+    if (!activeAction || !walletAddress || isSubmitting) return;
+
+    setActionError(null);
+    setIsSubmitting(true);
+    try {
+      await submitVaultAction(activeAction, vault.id, walletAddress);
+      setActiveAction(null);
+      onChanged?.();
+    } catch (err) {
+      setActionError(mapActionError(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const progress = timelineProgress(vault.createdAt, vault.deadline);
   const isActive =
     vault.status === "active" || vault.status === "pending_validation";
-  const settlement = settlementForVault(vault);
+  const settlement = buildFundReleaseView(vault);
+  const settlementAnomalies = detectSettlementAnomalies(vault);
   const canExportDeadline = isValidIcsDeadline(vault.deadline);
+  const [alarmPreference, setAlarmPreference] = useState<AlarmPreference>("both");
   const handleCalendarExport = () => {
-    downloadIcsEvent({
-      title: `${vault.name} deadline`,
-      deadline: vault.deadline,
-      description: `${vault.name} vault deadline for ${vault.amount.toLocaleString()} ${vault.currency}.`,
-      uid: `vault-${vault.id}-deadline`,
-    });
+    const events = vaultToIcsEvents(vault, alarmPreference);
+    downloadIcsCalendar(
+      events,
+      icsFilename(`${vault.name} deadline`, vaultDeadlineUid(vault.id)),
+      { alarms: alarmPreference }
+    );
   };
 
   return (
@@ -239,26 +316,14 @@ export default function VaultDetail() {
               <Text role="title" as="h1" style={{ margin: 0 }}>
                 {vault.name}
               </Text>
-              <span
-                style={{
-                  background: statusCfg.bg,
-                  color: statusCfg.color,
-                  border: `var(--border-width-1) solid ${statusCfg.color}`,
-                  borderRadius: "var(--radius-full)",
-                  padding: "2px 12px",
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                {statusCfg.label}
-              </span>
+              <StatusChip status={vault.status} size="lg" />
             </div>
             <Text
               role="display"
               as="div"
               style={{ color: "var(--accent)", lineHeight: 1.1 }}
             >
-              {vault.amount.toLocaleString()}{" "}
+              {formatUsdc(vault.amount)}{" "}
               <span
                 style={{
                   fontSize: "0.45em",
@@ -271,35 +336,111 @@ export default function VaultDetail() {
             </Text>
           </div>
 
-          {/* Quick Actions */}
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <Link
-              to="/vaults/create"
-              state={createVaultPrefillFromVault(vault)}
+          {/* Quick Actions / Connect CTA */}
+          {!walletAddress ? (
+            <div
+              data-testid="vault-connect-cta"
               style={{
-                ...actionBtn("var(--accent)"),
-                textDecoration: "none",
-                display: "inline-flex",
-                alignItems: "center",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: "0.5rem",
               }}
             >
-              Duplicate Vault
-            </Link>
-            {isActive && (
-              <>
-                {vault.status === "pending_validation" && (
-                  <button style={actionBtn("var(--accent)")}>
-                    Validate Milestone
-                  </button>
-                )}
-                <button style={actionBtn("var(--warning)")}>
-                  Extend Deadline
+              <Text role="caption" as="div" style={{ color: "var(--muted)" }}>
+                Connect a wallet to take action
+              </Text>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.75rem",
+                  flexWrap: "wrap",
+                }}
+              >
+                <WalletConnectButton />
+                <button
+                  type="button"
+                  onClick={connectDemo}
+                  style={{
+                    background: "none",
+                    border: 0,
+                    color: "var(--accent)",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    font: "inherit",
+                    fontSize: 13,
+                  }}
+                >
+                  Try the demo account
                 </button>
-                <button style={actionBtn("var(--danger)")}>Cancel Vault</button>
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <Link
+                to="/vaults/create"
+                state={createVaultPrefillFromVault(vault)}
+                style={{
+                  ...actionBtn("var(--accent)"),
+                  textDecoration: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                }}
+              >
+                Duplicate Vault
+              </Link>
+              {isActive && (
+                <>
+                  {(vault.status === "pending_validation" || vault.status === "active") && (
+                    <ActionButton
+                      label="Validate Milestone"
+                      color="var(--accent)"
+                      auth={authResults.validate_milestone}
+                      onClick={() => handleActionClick("validate_milestone")}
+                    />
+                  )}
+                  {!isApiMode() && (
+                    <ActionButton
+                      label="Extend Deadline"
+                      color="var(--warning)"
+                      auth={authResults.extend_deadline}
+                      onClick={() => handleActionClick("extend_deadline")}
+                    />
+                  )}
+                  <ActionButton
+                    label="Cancel Vault"
+                    color="var(--danger)"
+                    auth={authResults.cancel_vault}
+                    onClick={() => handleActionClick("cancel_vault")}
+                  />
+                </>
+              )}
+            </div>
+          )}
         </div>
+
+        {walletAddress &&
+          isActive &&
+          !authResults.extend_deadline.allowed &&
+          authResults.extend_deadline.reasons.length > 0 && (
+            <Text
+              role="caption"
+              as="p"
+              style={{ color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }}
+            >
+              Actions are limited because: {authResults.extend_deadline.reasons[0]}
+            </Text>
+          )}
+        {walletAddress && isActive && isApiMode() && (
+          <Text
+            role="caption"
+            as="p"
+            style={{ color: "var(--muted)", marginTop: "0.5rem", marginBottom: 0 }}
+          >
+            Extending a deadline is not supported by the demo API.
+          </Text>
+        )}
       </Card>
 
       {/* ── Timeline ── */}
@@ -326,6 +467,9 @@ export default function VaultDetail() {
           style={{
             display: "flex",
             justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "0.5rem",
             marginTop: "0.5rem",
           }}
         >
@@ -335,17 +479,50 @@ export default function VaultDetail() {
           {isActive ? (
             <CountdownDeadline deadline={vault.deadline} />
           ) : (
-            <Text
-              role="caption"
-              as="span"
-              style={{ color: statusCfg.color, fontWeight: 600 }}
-            >
-              {statusCfg.label}
-            </Text>
+            <StatusChip status={vault.status} />
           )}
-          <Text role="caption" as="span" style={{ color: "var(--muted)" }}>
-            Deadline {fmtDate(vault.deadline)}
-          </Text>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              flexWrap: "wrap",
+            }}
+          >
+            <Text role="caption" as="span" style={{ color: "var(--muted)" }}>
+              Deadline {fmtDate(vault.deadline)}
+            </Text>
+            {canExportDeadline ? (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                <select
+                  aria-label="Alarm preference"
+                  value={alarmPreference}
+                  onChange={(e) => setAlarmPreference(e.target.value as AlarmPreference)}
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius)",
+                    padding: "0.25rem 0.5rem",
+                    fontSize: 12,
+                    color: "var(--text)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="both">Alarms: 1 day & 1 hour</option>
+                  <option value="1day">1 day before</option>
+                  <option value="1hour">1 hour before</option>
+                  <option value="none">No alarms</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={handleCalendarExport}
+                  style={actionBtn("var(--accent)")}
+                >
+                  Add to calendar
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </Card>
 
@@ -382,7 +559,7 @@ export default function VaultDetail() {
             />
             <InfoRow
               label="Amount"
-              value={`${vault.amount.toLocaleString()} ${vault.currency}`}
+              value={`${formatUsdc(vault.amount)} ${vault.currency}`}
             />
           </div>
         </Card>
@@ -399,7 +576,31 @@ export default function VaultDetail() {
         </Card>
       </div>
 
-      <FundReleaseStatus {...settlement} />
+      {settlementAnomalies.length > 0 && (
+        <div
+          role="alert"
+          aria-label="Fund release inconsistency notice"
+          style={{
+            marginBottom: "1.25rem",
+            padding: "0.75rem 1rem",
+            color: "var(--danger)",
+            background: "var(--bg)",
+            border: "1px solid var(--danger)",
+            borderRadius: "var(--radius)",
+          }}
+        >
+          <Text role="caption" as="p" style={{ margin: 0, fontWeight: 700 }}>
+            Fund release data could not be verified:
+          </Text>
+          <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
+            {settlementAnomalies.map((anomaly) => (
+              <li key={anomaly}>{anomaly}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <FundReleaseStatus {...settlement} network={APP_EXPECTED_NETWORK} />
 
       {/* ── Milestones ── */}
       <Card style={{ marginBottom: "1.25rem" }}>
@@ -420,18 +621,39 @@ export default function VaultDetail() {
 
       {/* ── Transactions ── */}
       <Card>
-        <Text
-          role="caption"
-          as="div"
+        <div
           style={{
-            color: "var(--muted)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
             marginBottom: "1rem",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
+            flexWrap: "wrap",
+            gap: "0.5rem",
           }}
         >
-          Transaction History
-        </Text>
+          <Text
+            role="caption"
+            as="div"
+            style={{
+              color: "var(--muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            Transaction History
+          </Text>
+          <Link
+            to={`/vaults/${vault.id}/transactions`}
+            style={{
+              color: "var(--accent)",
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "none",
+            }}
+          >
+            View all
+          </Link>
+        </div>
         <div
           style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
         >
@@ -476,7 +698,7 @@ export default function VaultDetail() {
                     as="span"
                     style={{ color: "var(--text)", fontWeight: 600 }}
                   >
-                    {tx.amount.toLocaleString()} {vault.currency}
+                    {formatUsdc(tx.amount)} {vault.currency}
                   </Text>
                 )}
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -485,7 +707,7 @@ export default function VaultDetail() {
                     as="span"
                     style={{ color: "var(--muted)", fontSize: 11 }}
                   >
-                    {truncHash(tx.hash)}
+                    {truncateMiddle(tx.hash, 8, 6)}
                   </Text>
                   <button
                     type="button"
@@ -505,14 +727,19 @@ export default function VaultDetail() {
                   >
                     ⎘
                   </button>
-                  <a
-                    href={`https://stellar.expert/explorer/public/tx/${tx.hash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "var(--accent)", fontSize: 11 }}
-                  >
-                    ↗
-                  </a>
+                  {(() => {
+                    const txUrl = getExplorerTxUrl(tx.hash, network);
+                    return txUrl ? (
+                      <a
+                        href={txUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "var(--accent)", fontSize: 11 }}
+                      >
+                        ↗
+                      </a>
+                    ) : null;
+                  })()}
                 </div>
               </div>
             </div>
@@ -525,7 +752,78 @@ export default function VaultDetail() {
         network={network}
         contractAddress={vault.contractAddress}
       />
+
+      {/* ── Vault Action Confirmation Modal ── */}
+      {activeAction && (
+        <>
+          {actionError && (
+            <div
+              role="alert"
+              style={{
+                marginTop: "1rem",
+                padding: "0.75rem 1rem",
+                color: "var(--danger)",
+                background: "var(--bg)",
+                border: "1px solid var(--danger)",
+                borderRadius: "var(--radius)",
+              }}
+            >
+              {actionError}
+            </div>
+          )}
+          <ConfirmationModal
+            isOpen={activeAction !== null}
+            onClose={handleModalClose}
+            onConfirm={handleActionConfirm}
+            simpleConfirm={VAULT_ACTION_CONFIG[activeAction]}
+            isSubmitting={isSubmitting}
+          />
+        </>
+      )}
     </div>
+  );
+}
+
+// ── Action button with authorization gate ─────────────────────────────────────
+function ActionButton({
+  label,
+  color,
+  auth,
+  onClick,
+}: {
+  label: string;
+  color: string;
+  auth: VaultActionAuth;
+  onClick: () => void;
+}) {
+  return (
+    <span
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.25rem",
+        alignItems: "flex-start",
+      }}
+    >
+      <button
+        type="button"
+        style={{ ...actionBtn(color), opacity: auth.allowed ? 1 : 0.55 }}
+        onClick={onClick}
+        disabled={!auth.allowed}
+        aria-disabled={!auth.allowed}
+      >
+        {label}
+      </button>
+      {!auth.allowed && auth.reasons.length > 0 && (
+        <Text
+          role="caption"
+          as="span"
+          style={{ color: "var(--muted)", maxWidth: 220 }}
+        >
+          {auth.reasons[0]}
+        </Text>
+      )}
+    </span>
   );
 }
 
@@ -538,13 +836,13 @@ interface NetworkFooterBannerProps {
 function NetworkFooterBanner({ network, contractAddress }: NetworkFooterBannerProps) {
   const label = networkLabel(network);
   const explorerUrl = contractAddress
-    ? contractExplorerUrl(contractAddress, network ?? 'TESTNET')
-    : '';
+    ? contractExplorerUrl(contractAddress, network ?? "TESTNET")
+    : "";
 
-  const isTestnet = network !== 'PUBLIC';
+  const isTestnet = network !== "PUBLIC";
   const networkStatusColor = isTestnet
-    ? "var(--warning, #f59e0b)"
-    : "var(--success, #10b981)";
+    ? "var(--warning)"
+    : "var(--success)";
 
   return (
     <footer
@@ -595,7 +893,7 @@ function NetworkFooterBanner({ network, contractAddress }: NetworkFooterBannerPr
         <Text
           role="mono"
           as="span"
-          style={{ color: "var(--muted)", fontSize: 12, flex: 1, minWidth: 0 }}
+          style={{ color: "var(--muted)", fontSize: 12, flex: "1 1 100%", minWidth: 0, overflowWrap: "anywhere", wordBreak: "break-all" }}
           aria-label={`Contract address: ${contractAddress}`}
         >
           {contractAddress}
@@ -670,4 +968,18 @@ function actionBtn(color: string): React.CSSProperties {
     fontWeight: 600,
     minHeight: 36,
   };
+}
+
+function mapActionError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 403) {
+      return "Only the vault's verifier can do this.";
+    }
+    if (err.status === 409) {
+      return "This vault is already settled or inactive.";
+    }
+  }
+  return err instanceof Error
+    ? err.message
+    : "The action could not be submitted. Please try again.";
 }

@@ -1,5 +1,17 @@
 /**
  * Token loader utilities
+ *
+ * Invariants:
+ * - `loadTokens(` rejects any name that is not a plain basename
+ *   with a .json extension and ensures the resolved path stays within
+ *   the tokens directory (path-traversal guard).
+ * - `loadTokens(` fails fast on missing files, invalid JSON, or non-object
+ *   payloads so callers can distinguish partial failure from success.
+ * - `getAllTokens()` is deterministic and never throws: each file is
+ *   loaded independently, failures are logged and skipped, and the result
+ *   is a fresh object on every call (no shared mutable state).
+ * - `getTokenValue()` is pure and deterministic for any input, including
+ *   empty, malformed, and boundary paths.
  */
 
 import { DesignTokens } from '../types/tokens';
@@ -7,37 +19,120 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from './logger';
 
-export function loadTokens(tokenFile: string): DesignTokens {
-  // Reject anything that isn't a plain basename with a .json extension
-  if (!/^[^/\\]+\.json$/.test(tokenFile)) {
-    throw new Error(`Invalid token file name: "${tokenFile}"`);
+/** Maximum accepted length for a token file name. */
+const MAX_TOKEN_FILE_NAME_LENGTH = 255;
+
+/** Allowed token file names for `getAllTokens()`. */
+const TOKEN_FILES = [
+  'colors.json',
+  'typography.json',
+  'spacing.json',
+  'shadows.json',
+  'motion.json',
+  'borders.json',
+  'z-index.json',
+  'opacity.json',
+  'breakpoints.json',
+  'toast.json',
+] as const;
+
+/**
+ * Returns the absolute tokens directory for the current process.
+ */
+function getTokensDir(): string {
+  return path.resolve(process.cwd(), 'tokens');
+}
+
+/**
+ * Validates a token file name and returns its absolute path within the
+ * tokens directory. Throws on invalid names or path traversal attempts.
+ */
+function resolveTokenPath(tokenFile: string): string {
+  if (typeof tokenFile !== 'string' || tokenFile.length === 0) {
+    throw new Error('Invalid token file name: expected a non-empty string');
   }
 
-  const tokensDir = path.resolve(process.cwd(), 'tokens');
+  if (tokenFile.length > MAX_TOKEN_FILE_NAME_LENGTH) {
+    throw new Error(
+      `Invalid token file name: exceeds ${MAX_TOKEN_FILE_NAME_LENGTH} characters`,
+    );
+  }
+
+  // Reject anything that isn't a plain basename with a .json extension.
+  // This also rejects null bytes, query fragments, and absolute paths.
+  // Control characters (including null bytes) are rejected up front. The
+  // offending name is never echoed back so error messages cannot leak paths.
+  if (/[\u0000-\u001f\u007f]/.test(tokenFile) || !/^[^/\\]+\.json$/.test(tokenFile)) {
+    throw new Error('Invalid token file name: expected a plain .json basename');
+  }
+
+  const tokensDir = getTokensDir();
   const tokenPath = path.resolve(tokensDir, tokenFile);
 
-  // Ensure resolved path stays within the tokens directory
-  if (!tokenPath.startsWith(tokensDir + path.sep) && tokenPath !== tokensDir) {
+  // Ensure resolved path stays within the tokens directory.
+  if (!tokenPath.startsWith(tokensDir + path.sep)) {
     throw new Error(`Path traversal detected for token file: "${tokenFile}"`);
   }
 
-  const tokenData = fs.readFileSync(tokenPath, 'utf-8');
-  return JSON.parse(tokenData) as DesignTokens;
+  return tokenPath;
 }
 
+/**
+ * Loads and parses a single token file.
+ *
+ * @throws when the name is invalid, the file is missing/unreadable, the
+ * JSON is malformed, or the parsed payload is not a plain object.
+ */
+export function loadTokens(tokenFile: string): DesignTokens {
+  const tokenPath = resolveTokenPath(tokenFile);
+
+  let tokenData: string;
+  try {
+    tokenData = fs.readFileSync(tokenPath, 'utf-8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    throw new Error(
+      `Unable to read token file "${tokenFile}"${code ? ` (${code})` : ''}`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(tokenData);
+  } catch {
+    throw new SyntaxError(`Invalid JSON in token file "${tokenFile}"`);
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`Token file "${tokenFile}" must contain a JSON object`);
+  }
+
+  return parsed as DesignTokens;
+}
+
+/**
+ * Loads and merges all known token files.
+ *
+ * Never throws: failures are logged and the corresponding file is skipped.
+ * Returns a fresh object on every call so callers cannot mutate shared state.
+ */
 export function getAllTokens(): DesignTokens {
-  const tokenFiles = ['colors.json', 'typography.json', 'spacing.json', 'shadows.json', 'motion.json', 'borders.json', 'z-index.json', 'opacity.json', 'breakpoints.json'];
   const allTokens: DesignTokens = {};
-  
-  tokenFiles.forEach(file => {
+
+  for (const file of TOKEN_FILES) {
     try {
       const tokens = loadTokens(file);
-      Object.assign(allTokens, tokens);
+      for (const [key, value] of Object.entries(tokens)) {
+        // Skip DTCG file-level metadata such as "$schema".
+        if (!key.startsWith('$')) {
+          (allTokens as Record<string, unknown>)[key] = value;
+        }
+      }
     } catch (error) {
       logger.warn(`Failed to load ${file}:`, error);
     }
-  });
-  
+  }
+
   return allTokens;
 }
 
@@ -61,7 +156,7 @@ export function getTokenValue(
   path: string,
   mode: 'light' | 'dark' = 'light',
 ): unknown {
-  if (!path) return undefined;
+  if (typeof path !== 'string' || path.length === 0) return undefined;
 
   let node: unknown = getAllTokens();
 
@@ -72,15 +167,11 @@ export function getTokenValue(
   }
 
   // If the resolved node is a plain object with both mode keys, resolve by mode.
-  if (
-    node !== null &&
-    typeof node === 'object' &&
-    !Array.isArray(node)
-  ) {
+  if (node !== null && typeof node === 'object' && !Array.isArray(node)) {
     const record = node as Record<string, unknown>;
 
     // Mode-aware resolution: node has 'light' or 'dark' sub-objects that are
-    // DTCG token nodes (i.e. contain a '$value' key).
+    // DTCG token nodes (i.e. contain a $value key).
     const modeNode = record[mode] as Record<string, unknown> | undefined;
     if (
       modeNode !== undefined &&

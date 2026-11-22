@@ -2,5 +2,5 @@
 
 .notification-bell {
   /* ... */
-  box-shadow: var(--shadow-sm);  /* common token; adjust if needed */
+  box-shadow: var(--shadow-level-2);  /* subtle elevation for notification bell */
 }

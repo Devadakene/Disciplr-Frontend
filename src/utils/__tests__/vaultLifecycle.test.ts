@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { vaultLifecycleStages } from '../vaultLifecycle';
+import { vaultLifecycleStages, timelineProgress, vaultProgressPct } from '../vaultLifecycle';
 
 const states = (status: string) =>
   vaultLifecycleStages(status).map((stage) => [stage.id, stage.state, stage.label]);
@@ -59,3 +59,116 @@ describe('vaultLifecycleStages', () => {
     ]);
   });
 });
+
+describe('timelineProgress', () => {
+  const created = '2026-01-01T00:00:00.000Z';
+  const deadline = '2026-01-11T00:00:00.000Z'; // 10 days duration
+
+  const startMs = new Date(created).getTime();
+  const endMs = new Date(deadline).getTime();
+
+  it('calculates exact progress percentage during vault lifetime', () => {
+    const halfwayMs = startMs + 5 * 24 * 60 * 60 * 1000;
+    expect(timelineProgress(created, deadline, halfwayMs)).toBe(50);
+  });
+
+  it('clamps progress to 0 before creation date', () => {
+    const beforeStartMs = startMs - 1000;
+    expect(timelineProgress(created, deadline, beforeStartMs)).toBe(0);
+  });
+
+  it('clamps progress to 100 after deadline date', () => {
+    const afterEndMs = endMs + 1000;
+    expect(timelineProgress(created, deadline, afterEndMs)).toBe(100);
+  });
+
+  it('handles equal created and deadline timestamps without NaN divide-by-zero', () => {
+    const sameTime = '2026-01-01T00:00:00.000Z';
+    const sameMs = new Date(sameTime).getTime();
+
+    const progressAtSameTime = timelineProgress(sameTime, sameTime, sameMs);
+    expect(progressAtSameTime).toBe(100);
+    expect(Number.isNaN(progressAtSameTime)).toBe(false);
+
+    const progressBeforeSameTime = timelineProgress(sameTime, sameTime, sameMs - 1000);
+    expect(progressBeforeSameTime).toBe(0);
+    expect(Number.isNaN(progressBeforeSameTime)).toBe(false);
+  });
+
+  it('handles deadline earlier than created date safely', () => {
+    const start = '2026-01-10T00:00:00.000Z';
+    const end = '2026-01-01T00:00:00.000Z';
+    const now = new Date(start).getTime() + 1000;
+
+    expect(timelineProgress(start, end, now)).toBe(100);
+  });
+
+  it('returns 0 for invalid date strings', () => {
+    expect(timelineProgress('invalid-date', deadline)).toBe(0);
+    expect(timelineProgress(created, 'invalid-date')).toBe(0);
+  });
+});
+
+describe('vaultProgressPct', () => {
+  const created = '2026-01-01T00:00:00.000Z';
+  const deadline = '2026-01-11T00:00:00.000Z';
+  const halfwayMs = new Date(created).getTime() + 5 * 24 * 60 * 60 * 1000;
+
+  it('uses timelineProgress when milestones array is empty or missing', () => {
+    expect(vaultProgressPct({ createdAt: created, deadline }, halfwayMs)).toBe(50);
+    expect(vaultProgressPct({ createdAt: created, deadline, milestones: [] }, halfwayMs)).toBe(50);
+  });
+
+  it('computes percentage from validated milestones when milestones exist', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'validated' as const },
+        { status: 'pending' as const },
+        { status: 'pending' as const },
+        { status: 'pending' as const },
+      ],
+    };
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(25);
+  });
+
+  it('reports 100% when all milestones are validated', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'validated' as const },
+        { status: 'validated' as const },
+      ],
+    };
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(100);
+  });
+
+  it('correctly handles failed milestones (only validated milestones count towards progress)', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'validated' as const },
+        { status: 'failed' as const },
+        { status: 'pending' as const },
+      ],
+    };
+    // 1 / 3 = 33%
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(33);
+  });
+
+  it('reports 0% when no milestones are validated', () => {
+    const vault = {
+      createdAt: created,
+      deadline,
+      milestones: [
+        { status: 'pending' as const },
+        { status: 'failed' as const },
+      ],
+    };
+    expect(vaultProgressPct(vault, halfwayMs)).toBe(0);
+  });
+});
+

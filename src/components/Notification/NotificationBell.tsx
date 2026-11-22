@@ -1,16 +1,10 @@
 import { Bell } from "lucide-react";
-import { useNotification } from "@/Zustand/Store";
+import { useUnreadCount } from "@/Zustand/Store";
 import NavLink from "../NavLink";
 import "./NotificationBell.css";
 
 export default function NotificationBell() {
-  const notifications = useNotification((state) => state.notification) || [];
-
-  // Compute unread count. If isRead flag is absent/undefined, treat as unread.
-  const unreadCount = notifications.filter((item) => {
-    const isRead = item.isRead !== undefined ? item.isRead : false;
-    return !isRead;
-  }).length;
+  const unreadCount = useUnreadCount();
 
   const hasUnread = unreadCount > 0;
   

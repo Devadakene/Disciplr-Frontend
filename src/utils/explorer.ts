@@ -1,26 +1,24 @@
 import type { WalletNetwork } from '../context/WalletContext';
 import { isValidStellarAddress } from './stellarAddress';
-
-const EXPLORER_BASE = 'https://stellar.expert/explorer'
+import { isValidTxHash } from './vaultState';
 
 export const EXPLORER_BASE_URLS: Record<WalletNetwork, string> = {
   TESTNET: 'https://stellar.expert/explorer/testnet',
   PUBLIC: 'https://stellar.expert/explorer/public',
 };
 
-export function explorerBaseUrl(network: WalletNetwork): string {
-  return EXPLORER_BASE_URLS[network] ?? EXPLORER_BASE_URLS.TESTNET;
+export function explorerBaseUrl(network: WalletNetwork | null): string {
+  return (network ? EXPLORER_BASE_URLS[network] : undefined) ?? EXPLORER_BASE_URLS.TESTNET;
 }
 
 export function getExplorerTxUrl(txHash: string, network: 'TESTNET' | 'PUBLIC' | null): string {
-  const segment = network === 'PUBLIC' ? 'public' : 'testnet'
-  return `${EXPLORER_BASE}/${segment}/tx/${txHash}`
+  if (!isValidTxHash(txHash)) return '';
+  return `${explorerBaseUrl(network)}/tx/${encodeURIComponent(txHash)}`;
 }
 
 export function getExplorerAccountUrl(address: string, network: 'TESTNET' | 'PUBLIC' | null): string {
   if (!isValidStellarAddress(address)) return '';
-  const segment = network === 'PUBLIC' ? 'public' : 'testnet'
-  return `${EXPLORER_BASE}/${segment}/account/${address}`
+  return `${explorerBaseUrl(network)}/account/${encodeURIComponent(address)}`;
 }
 
 /**

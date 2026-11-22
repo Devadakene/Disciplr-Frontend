@@ -2,6 +2,7 @@ import { type ChangeEvent, type CSSProperties, type DragEvent, useEffect, useId,
 import { Field } from './Field'
 import { Text } from './Text'
 import { normalizeEvidenceUrl } from '../utils/url'
+import { FILE_SIGNATURE_MISMATCH_ERROR, validateFileSignature } from '../utils/fileSignature'
 
 type EvidenceUploadStatus = 'empty' | 'invalid' | 'valid'
 
@@ -28,7 +29,12 @@ interface EvidenceUploadProps {
   onSubmit?: (evidenceUrl: string) => void
   onFileSelect?: (file: File) => void
   acceptedFileTypes?: string[]
+  /** Maximum allowed file size in bytes. Defaults to 50 MB. */
+  maxFileSizeBytes?: number
 }
+
+/** Default maximum file size: 50 MB */
+const DEFAULT_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 
 export function EvidenceUpload({
   id,
@@ -39,6 +45,7 @@ export function EvidenceUpload({
   onSubmit,
   onFileSelect,
   acceptedFileTypes = ACCEPTED_FILE_TYPES,
+  maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES,
 }: EvidenceUploadProps) {
   const generatedId = useId()
   const fieldId = id || `evidence-upload-${generatedId}`
@@ -48,6 +55,7 @@ export function EvidenceUpload({
   const [dragError, setDragError] = useState<string | undefined>(undefined)
   const [droppedFile, setDroppedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const validationTokenRef = useRef(0)
 
   const normalizedUrl = useMemo(() => normalizeEvidenceUrl(rawValue), [rawValue])
   const hasInput = rawValue.trim().length > 0
@@ -64,6 +72,7 @@ export function EvidenceUpload({
     const nextValue = event.target.value
     const nextUrl = normalizeEvidenceUrl(nextValue)
 
+    validationTokenRef.current += 1
     setRawValue(nextValue)
     setDroppedFile(null)
     setDragError(undefined)
@@ -78,13 +87,41 @@ export function EvidenceUpload({
     }
   }
 
-  const processFile = (file: File) => {
-    const effectiveTypes = acceptedFileTypes.length > 0 ? acceptedFileTypes : ACCEPTED_FILE_TYPES
+  const processFile = async (file: File) => {
+    const token = ++validationTokenRef.current
+    const effectiveTypes = acceptedFileTypes
 
     if (!effectiveTypes.includes(file.type)) {
       setDragError(
         `File type not accepted. Allowed types: ${ACCEPTED_FILE_EXTENSIONS.join(', ')}.`
       )
+      setDroppedFile(null)
+      return
+    }
+
+    if (file.size > maxFileSizeBytes) {
+      const limitMb = (maxFileSizeBytes / (1024 * 1024)).toFixed(0)
+      const fileMb = (file.size / (1024 * 1024)).toFixed(1)
+      setDragError(`File is too large (${fileMb} MB). Maximum allowed size is ${limitMb} MB.`)
+      setDroppedFile(null)
+      return
+    }
+
+    try {
+      const validation = await validateFileSignature(file)
+      if (token !== validationTokenRef.current) {
+        return
+      }
+      if (!validation.valid) {
+        setDragError(validation.error ?? FILE_SIGNATURE_MISMATCH_ERROR)
+        setDroppedFile(null)
+        return
+      }
+    } catch {
+      if (token !== validationTokenRef.current) {
+        return
+      }
+      setDragError(FILE_SIGNATURE_MISMATCH_ERROR)
       setDroppedFile(null)
       return
     }
@@ -124,17 +161,19 @@ export function EvidenceUpload({
     if (files.length === 0) return
 
     if (files.length > 1) {
+      validationTokenRef.current += 1
+      setDroppedFile(null)
       setDragError('Only one file can be attached at a time.')
       return
     }
 
-    processFile(files[0])
+    void processFile(files[0])
   }
 
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files
     if (!files || files.length === 0) return
-    processFile(files[0])
+    void processFile(files[0])
     // Reset input so the same file can be selected again
     event.target.value = ''
   }
@@ -144,6 +183,7 @@ export function EvidenceUpload({
   }
 
   const handleRemoveFile = () => {
+    validationTokenRef.current += 1
     setDroppedFile(null)
     setDragError(undefined)
   }
@@ -192,83 +232,89 @@ export function EvidenceUpload({
         </Text>
       )}
 
-      {/* Drag-and-drop zone */}
-      <div
-        data-testid="evidence-drop-zone"
-        aria-label="Drop evidence file here or click to browse"
-        role="button"
-        tabIndex={0}
-        aria-dropeffect="copy"
-        onDragEnter={handleDragEnter}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={handleBrowseClick}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            handleBrowseClick()
-          }
-        }}
-        style={dropZoneStyles}
-      >
-        {isDragOver ? (
-          <Text role="caption" as="span" style={{ color: 'var(--accent)' }}>
-            Drop file to attach
-          </Text>
-        ) : droppedFile ? (
-          <Text role="caption" as="span" style={{ color: 'var(--success)' }}>
-            File attached: {droppedFile.name}
-          </Text>
-        ) : (
-          <Text role="caption" as="span" style={{ color: 'var(--muted)' }}>
-            Drag and drop a file here, or{' '}
-            <span style={{ color: 'var(--accent)', textDecoration: 'underline' }}>browse</span>
-            <br />
-            Accepted types: {ACCEPTED_FILE_EXTENSIONS.join(', ')}
-          </Text>
-        )}
-      </div>
+      {onFileSelect && (
+        <>
+          {/* Drag-and-drop zone */}
+          <div
+            data-testid="evidence-drop-zone"
+            aria-label="Drop evidence file here or click to browse"
+            role="button"
+            tabIndex={0}
+            aria-dropeffect="copy"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={handleBrowseClick}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                handleBrowseClick()
+              }
+            }}
+            style={dropZoneStyles}
+          >
+            {isDragOver ? (
+              <Text role="caption" as="span" style={{ color: 'var(--accent)' }}>
+                Drop file to attach
+              </Text>
+            ) : droppedFile ? (
+              <Text role="caption" as="span" style={{ color: 'var(--success)' }}>
+                File attached: {droppedFile.name}
+              </Text>
+            ) : (
+              <Text role="caption" as="span" style={{ color: 'var(--muted)' }}>
+                Drag and drop a file here, or{' '}
+                <span style={{ color: 'var(--accent)', textDecoration: 'underline' }}>browse</span>
+                <br />
+                Accepted types: {ACCEPTED_FILE_EXTENSIONS.join(', ')}
+                <br />
+                Max size: {(maxFileSizeBytes / (1024 * 1024)).toFixed(0)} MB
+              </Text>
+            )}
+          </div>
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={ACCEPTED_FILE_EXTENSIONS.join(',')}
-        onChange={handleFileInputChange}
-        aria-hidden="true"
-        tabIndex={-1}
-        style={{ display: 'none' }}
-      />
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_FILE_EXTENSIONS.join(',')}
+            onChange={handleFileInputChange}
+            aria-hidden="true"
+            tabIndex={-1}
+            style={{ display: 'none' }}
+          />
 
-      {dragError && (
-        <Text
-          role="caption"
-          as="span"
-          style={{ color: 'var(--danger)' }}
-          data-testid="drag-error"
-        >
-          {dragError}
-        </Text>
-      )}
+          {dragError && (
+            <Text
+              role="caption"
+              as="span"
+              style={{ color: 'var(--danger)' }}
+              data-testid="drag-error"
+            >
+              {dragError}
+            </Text>
+          )}
 
-      {droppedFile && (
-        <button
-          type="button"
-          onClick={handleRemoveFile}
-          style={{
-            alignSelf: 'flex-start',
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--muted)',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            padding: 0,
-            textDecoration: 'underline',
-          }}
-        >
-          Remove file
-        </button>
+          {droppedFile && (
+            <button
+              type="button"
+              onClick={handleRemoveFile}
+              style={{
+                alignSelf: 'flex-start',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--muted)',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                padding: 0,
+                textDecoration: 'underline',
+              }}
+            >
+              Remove file
+            </button>
+          )}
+        </>
       )}
 
       {onSubmit && (

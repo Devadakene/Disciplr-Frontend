@@ -13,7 +13,10 @@ export function computeFutureDeadline(days: number, now: Date = new Date()): str
 
 export const DEADLINE_PRESETS: DeadlinePreset[] = ['7d', '30d', '90d']
 
+export function getPresetDays(preset: DeadlinePreset): number {
+  return parseInt(preset, 10)
+}
+
 export function getPresetLabel(preset: DeadlinePreset): string {
-  const days = parseInt(preset, 10)
-  return `${days} days`
+  return `${getPresetDays(preset)} days`
 }

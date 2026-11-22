@@ -105,15 +105,19 @@ export async function fetchUsdcBalance(
                 balanceLine.asset_issuer === issuer,
         );
 
-        if (usdcBalance && !isFiniteNumericString(usdcBalance.balance)) {
-            throw new HorizonBalanceError(
-                'INVALID_RESPONSE',
-                'Horizon USDC balance was missing or not a finite numeric string.',
-            );
+        let balanceValue = '0.00';
+        if (usdcBalance) {
+            if (!isFiniteNumericString(usdcBalance.balance)) {
+                throw new HorizonBalanceError(
+                    'INVALID_RESPONSE',
+                    'Horizon USDC balance was missing or not a finite numeric string.',
+                );
+            }
+            balanceValue = usdcBalance.balance;
         }
 
         return {
-            balance: usdcBalance?.balance ?? '0.00',
+            balance: balanceValue,
             hasTrustline: Boolean(usdcBalance),
             issuer,
             network,

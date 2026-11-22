@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import { Text } from "../components/Text";
 import { Field } from "../components/Field";
 import type {
@@ -19,10 +19,34 @@ import { useWallet } from "../context/WalletContext";
 import {
   DEADLINE_PRESETS,
   computeFutureDeadline,
+  getPresetDays,
   getPresetLabel,
+  type DeadlinePreset,
 } from "../utils/deadlinePresets";
+import { toUtcIso } from "../utils/format";
 import { getCreateVaultPrefill } from "../utils/vaultPrefill";
-import { createVault } from "../services/vaultService";
+import {
+  createVault,
+  CreateIntegrityError,
+  findRecentVaultByCreator,
+} from "../services/vaultService";
+import { ApiError, classifyCreateError, isApiEnabled } from "../services/api";
+import { normalizeEvidenceUrl } from "../utils/url";
+import { isNetworkMismatch, APP_EXPECTED_NETWORK } from "../utils/networkMismatch";
+import { isValidStellarAddress } from "../utils/stellarAddress";
+import { useToastStore } from "../Zustand/toastStore";
+import type { Vault } from "../types/vault";
+import {
+  clearDraft,
+  createVaultDraft,
+  readDraft,
+  writeDraft,
+  type CreateVaultDraft,
+} from "../utils/createVaultDraft";
+import { registerNavigationGuard } from "../utils/navigationGuard";
+
+/** How long the form must stay idle before its draft is persisted. */
+const DRAFT_WRITE_DELAY_MS = 500;
 
 interface MilestoneFormRow extends CreateVaultMilestoneInput {
   id: string;
@@ -40,24 +64,31 @@ export default function CreateVault() {
   const location = useLocation();
   const navigate = useNavigate();
   const prefill = getCreateVaultPrefill(location.state);
-  const { balance, balanceStatus, address } = useWallet();
+  const { balance, balanceStatus, address, network } = useWallet();
+  const nameRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
   const deadlineRef = useRef<HTMLInputElement>(null);
   const successAddressRef = useRef<HTMLInputElement>(null);
   const failureAddressRef = useRef<HTMLInputElement>(null);
+  const verifierAddressRef = useRef<HTMLInputElement>(null);
   const milestoneTitleRefs = useRef<Record<string, HTMLInputElement | null>>(
     {},
   );
   const milestoneCriteriaRefs = useRef<Record<string, HTMLInputElement | null>>(
     {},
   );
+  const [name, setName] = useState(prefill?.name ?? "");
   const [amount, setAmount] = useState(prefill?.amount ?? "");
   const [deadline, setDeadline] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState<DeadlinePreset | null>(null);
   const [successAddress, setSuccessAddress] = useState(
     prefill?.successAddress ?? "",
   );
   const [failureAddress, setFailureAddress] = useState(
     prefill?.failureAddress ?? "",
+  );
+  const [verifierAddress, setVerifierAddress] = useState(
+    prefill?.verifierAddress ?? "",
   );
   const [milestones, setMilestones] = useState<MilestoneFormRow[]>(() => {
     if (prefill?.milestones && prefill.milestones.length > 0) {
@@ -72,19 +103,181 @@ export default function CreateVault() {
   const [errors, setErrors] = useState<CreateVaultErrors>({});
   const [evidenceUrl, setEvidenceUrl] = useState<string | undefined>();
   const [showReview, setShowReview] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const [submissionUncertain, setSubmissionUncertain] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [validationMessages, setValidationMessages] = useState<string[]>([]);
+  const [reconciliationState, setReconciliationState] = useState<
+    "checking" | "not-found" | "failed" | "ambiguous" | "disconnected" | null
+  >(null);
+  const [matchingVaults, setMatchingVaults] = useState<Vault[]>([]);
+  const [integrityError, setIntegrityError] = useState<CreateIntegrityError | null>(null);
+  const addressRef = useRef(address);
+  const reconciliationControllerRef = useRef<AbortController | null>(null);
+  const uncertainCreateRef = useRef<{
+    creator: string;
+    name: string;
+    amount: number;
+    since: number;
+  } | null>(null);
+  addressRef.current = address;
 
-  const errorFieldOrder: Array<keyof CreateVaultErrors> = [
-    "amount",
-    "deadline",
-    "successAddress",
-    "failureAddress",
-  ];
+  useEffect(() => {
+    if (!address) reconciliationControllerRef.current?.abort();
+    return () => reconciliationControllerRef.current?.abort();
+  }, [address]);
+
+  const [draftOffer, setDraftOffer] = useState<CreateVaultDraft | null>(null);
+  // Resolved once per mount: the restore prompt must not reappear after the
+  // user has already restored or discarded the draft.
+  const draftResolvedRef = useRef(false);
+
+  // The values the form starts with (a Duplicate prefill, or the empty form).
+  // Anything else counts as unsaved work worth drafting / warning about.
+  const baselineMilestones: CreateVaultMilestoneInput[] =
+    prefill?.milestones && prefill.milestones.length > 0
+      ? prefill.milestones
+      : [{ title: "Milestone 1", criteria: "Default milestone criteria" }];
+  const isDirty =
+    name !== (prefill?.name ?? "") ||
+    verifierAddress !== (prefill?.verifierAddress ?? "") ||
+    amount !== (prefill?.amount ?? "") ||
+    deadline !== "" ||
+    successAddress !== (prefill?.successAddress ?? "") ||
+    failureAddress !== (prefill?.failureAddress ?? "") ||
+    evidenceUrl !== undefined ||
+    milestones.length !== baselineMilestones.length ||
+    milestones.some(
+      (milestone, index) =>
+        milestone.title !== baselineMilestones[index].title ||
+        milestone.criteria !== baselineMilestones[index].criteria,
+    );
+
+  // A create whose outcome is unknown has already left the app; the form is
+  // locked and the user was told to check their vaults, so neither the
+  // leave-page prompt nor the navigation guard should trap them.
+  const hasUnsavedChanges = isDirty && !submissionUncertain;
+
+  // Offer a saved draft once the wallet address is known. A Duplicate prefill
+  // always wins: a draft is never applied (or offered) over it.
+  useEffect(() => {
+    if (draftResolvedRef.current) return;
+    if (prefill) {
+      draftResolvedRef.current = true;
+      return;
+    }
+    if (!address) return;
+    draftResolvedRef.current = true;
+    setDraftOffer(readDraft(address));
+  }, [address, prefill]);
+
+  // Debounced autosave. Drafts are written per wallet address and never
+  // contain wallet or signing material.
+  useEffect(() => {
+    if (!address || !hasUnsavedChanges) return;
+    const timeoutId = window.setTimeout(() => {
+      writeDraft(
+        address,
+        createVaultDraft({
+          name,
+          verifierAddress,
+          amount,
+          deadline,
+          successAddress,
+          failureAddress,
+          milestones: milestones.map(({ title, criteria }) => ({
+            title,
+            criteria,
+          })),
+          evidenceUrl: evidenceUrl ?? undefined,
+        }),
+      );
+    }, DRAFT_WRITE_DELAY_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    address,
+    hasUnsavedChanges,
+    name,
+    verifierAddress,
+    amount,
+    deadline,
+    successAddress,
+    failureAddress,
+    milestones,
+    evidenceUrl,
+  ]);
+
+  // Native leave-page prompt while the form holds unsaved changes.
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // In-app navigation guard: Layout asks for confirmation before following a
+  // nav link while this guard is registered.
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    return registerNavigationGuard();
+  }, [hasUnsavedChanges]);
+
+  const handleRestoreDraft = () => {
+    if (!draftOffer) return;
+    const restored = draftOffer;
+    const restoredName = restored.name ?? name;
+    const restoredVerifier = restored.verifierAddress ?? verifierAddress;
+    setName(restoredName);
+    setVerifierAddress(restoredVerifier);
+    setAmount(restored.amount);
+    setDeadline(restored.deadline);
+    setSuccessAddress(restored.successAddress);
+    setFailureAddress(restored.failureAddress);
+    setMilestones(
+      restored.milestones.map((milestone, index) => ({
+        id: `milestone-${Date.now()}-${index}`,
+        title: milestone.title,
+        criteria: milestone.criteria,
+      })),
+    );
+    setEvidenceUrl(restored.evidenceUrl);
+    // Restored text is untrusted input: run it through the same validators the
+    // live form uses so nothing can reach "ready to review" unvalidated.
+    setErrors(
+      validateCreateVault({
+        name: restoredName,
+        verifierAddress: restoredVerifier,
+        amount: restored.amount,
+        deadline: restored.deadline,
+        successAddress: restored.successAddress,
+        failureAddress: restored.failureAddress,
+        milestones: restored.milestones,
+      }, new Date(), address),
+    );
+    setDraftOffer(null);
+  };
+
+  const handleDiscardDraft = () => {
+    clearDraft(address);
+    setDraftOffer(null);
+  };
+
+  const errorFieldOrder: Array<
+    "name" | "amount" | "deadline" | "successAddress" | "failureAddress" | "verifierAddress"
+  > = ["name", "amount", "deadline", "successAddress", "failureAddress", "verifierAddress"];
 
   const fieldRefs = {
+    name: nameRef,
     amount: amountRef,
     deadline: deadlineRef,
     successAddress: successAddressRef,
     failureAddress: failureAddressRef,
+    verifierAddress: verifierAddressRef,
   };
 
   const errorEntries = errorFieldOrder.flatMap((field) =>
@@ -176,12 +369,14 @@ export default function CreateVault() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const nextErrors = validateCreateVault({
+      name,
       amount,
       deadline,
       successAddress,
       failureAddress,
+      verifierAddress,
       milestones,
-    });
+    }, new Date(), address);
     setErrors(nextErrors);
 
     if (hasCreateVaultErrors(nextErrors)) {
@@ -199,42 +394,235 @@ export default function CreateVault() {
     setShowReview(true);
   };
 
+  const reconcileCreate = async (pendingCreate: {
+    creator: string;
+    name: string;
+    amount: number;
+    since: number;
+  }) => {
+    reconciliationControllerRef.current?.abort();
+    const controller = new AbortController();
+    reconciliationControllerRef.current = controller;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    setReconciliationState("checking");
+    setMatchingVaults([]);
+    setSubmitError("Checking whether your vault was created...");
+
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (addressRef.current !== pendingCreate.creator) {
+          setReconciliationState("disconnected");
+          setSubmitError("Your wallet disconnected. Reconnect it, then check again.");
+          return;
+        }
+
+        const matches = await findRecentVaultByCreator({
+          ...pendingCreate,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted || addressRef.current !== pendingCreate.creator) {
+          setReconciliationState("disconnected");
+          setSubmitError("Your wallet disconnected. Reconnect it, then check again.");
+          return;
+        }
+        if (matches.length === 1) {
+          useToastStore.getState().push({
+            message: "Your vault was created.",
+            variant: "success",
+          });
+          setSubmissionUncertain(false);
+          // The vault exists, so this wallet's draft is done with.
+          clearDraft(pendingCreate.creator);
+          navigate(`/vaults/${matches[0].id}`);
+          return;
+        }
+        if (matches.length > 1) {
+          setMatchingVaults(matches);
+          setReconciliationState("ambiguous");
+          setSubmitError(
+            "More than one matching vault was found. Choose the vault you created before taking any further action.",
+          );
+          return;
+        }
+
+        if (attempt === 0) {
+          await new Promise<void>((resolve, reject) => {
+            if (controller.signal.aborted) {
+              reject(new DOMException("Reconciliation aborted.", "AbortError"));
+              return;
+            }
+            const timer = window.setTimeout(() => {
+              controller.signal.removeEventListener("abort", onAbort);
+              resolve();
+            }, 250);
+            const onAbort = () => {
+              window.clearTimeout(timer);
+              reject(new DOMException("Reconciliation aborted.", "AbortError"));
+            };
+            controller.signal.addEventListener("abort", onAbort, { once: true });
+          });
+        }
+      }
+
+      setSubmissionUncertain(false);
+      setReconciliationState("not-found");
+      setSubmitError("No matching vault was found. You can safely try again.");
+    } catch {
+      const disconnected =
+        controller.signal.aborted || addressRef.current !== pendingCreate.creator;
+      logger.error("Vault creation reconciliation failed");
+      setReconciliationState(disconnected ? "disconnected" : "failed");
+      setSubmitError(
+        disconnected
+          ? "Your wallet disconnected. Reconnect it, then check again."
+          : "We couldn't check whether your vault was created. Check again before retrying.",
+      );
+    } finally {
+      if (reconciliationControllerRef.current === controller) {
+        reconciliationControllerRef.current = null;
+      }
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
   const handleConfirm = async () => {
-    logger.debug("CreateVault confirm", {
+    if (isSubmittingRef.current || submissionUncertain) return;
+
+    if (!address || !isValidStellarAddress(address)) {
+      setSubmitError("Wallet account unavailable. Please reconnect your wallet.");
+      return;
+    }
+
+    if (!network || isNetworkMismatch(network)) {
+      setSubmitError(`Wallet network unavailable or incorrect. Please switch to ${APP_EXPECTED_NETWORK}.`);
+      return;
+    }
+
+    const nextErrors = validateCreateVault({
+      name,
       amount,
       deadline,
       successAddress,
       failureAddress,
-      milestones: milestones.map(({ title, criteria }) => ({
-        title,
-        criteria,
-      })),
-      evidenceUrl,
-    });
+      verifierAddress,
+      milestones,
+    }, new Date(), address);
+    if (hasCreateVaultErrors(nextErrors)) {
+      setErrors(nextErrors);
+      setShowReview(false);
+      return;
+    }
+
+    if (balanceStatus === 'success' && exceedsBalance(amount, balance)) {
+      setSubmitError("Amount exceeds your available USDC balance.");
+      return;
+    }
+
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setValidationMessages([]);
+    setReconciliationState(null);
+    setMatchingVaults([]);
+
+    const normalizedEvidence = evidenceUrl
+      ? normalizeEvidenceUrl(evidenceUrl) ?? undefined
+      : undefined;
+    const apiEnabled = isApiEnabled();
+    const pendingCreate = {
+      creator: address,
+      name: name.trim(),
+      amount: Number(amount),
+      since: Date.now(),
+    };
 
     try {
       const newVault = await createVault({
-        name: prefill?.sourceVaultName ? `Duplicated ${prefill.sourceVaultName}` : `Vault ${amount} USDC`,
+        name: name.trim(),
         amount: Number(amount),
         currency: "USDC",
-        deadline,
-        creatorAddress: address ?? "GBVZ3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK7L",
+        deadline: toUtcIso(deadline),
+        creatorAddress: address,
+        verifierAddress: verifierAddress.trim(),
         successAddress,
         failureAddress,
-        milestones: milestones.map(({ title, criteria }) => ({
+        milestones: milestones.map(({ title, criteria }, index) => ({
           title,
+          description: criteria,
           criteria,
+          ...(index === 0 && !apiEnabled && normalizedEvidence
+            ? { evidenceUrl: normalizedEvidence }
+            : {}),
         })),
       });
+      
+      if (!newVault || !newVault.id) {
+        throw new Error("Malformed response from server.");
+      }
 
+      // The vault exists, so this wallet's draft is done with. An unknown
+      // outcome (below) keeps it: the user may need to retry after checking.
+      clearDraft(address);
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
       navigate(`/vaults/${newVault.id}`);
     } catch (err) {
-      logger.error("Failed to create vault", err);
+      if (err instanceof CreateIntegrityError) {
+        // Post-creation integrity check failed: do not navigate silently.
+        // Don't log full addresses in the integrity error.
+        logger.error("Vault creation integrity mismatch detected");
+        setIntegrityError(err);
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (
+        err instanceof ApiError &&
+        classifyCreateError(err) === "rejected"
+      ) {
+        const apiError = err;
+        logger.warn("Vault creation was rejected by the API");
+        setValidationMessages(
+          [apiError.serverError, ...apiError.details].filter(
+            (message): message is string => Boolean(message),
+          ),
+        );
+        setSubmitError(
+          apiError.details.length > 0 ? null : apiError.serverError ?? "Vault creation was rejected.",
+        );
+        setSubmissionUncertain(false);
+        setReconciliationState(null);
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+
+      logger.error("Vault creation outcome unknown");
+      uncertainCreateRef.current = pendingCreate;
+      setSubmissionUncertain(true);
+      setReconciliationState("checking");
+      await reconcileCreate(pendingCreate);
     }
   };
 
   const handleBackToEdit = () => {
     setShowReview(false);
+    setSubmitError(null);
+    setValidationMessages([]);
+  };
+
+  const handleCheckAgain = () => {
+    if (
+      !address ||
+      address !== uncertainCreateRef.current?.creator ||
+      !uncertainCreateRef.current ||
+      isSubmittingRef.current
+    ) return;
+    void reconcileCreate(uncertainCreateRef.current);
   };
 
   return (
@@ -251,17 +639,100 @@ export default function CreateVault() {
         redirect on failure.
       </Text>
 
-      {showReview ? (
+      {integrityError ? (
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem",
+            maxWidth: 540,
+            padding: "1.25rem",
+            border: "1px solid var(--danger)",
+            borderRadius: "var(--radius)",
+            background: "color-mix(in srgb, var(--danger) 8%, var(--surface))",
+            marginBottom: "1.5rem",
+          }}
+        >
+          <Text role="display" as="h2" style={{ color: "var(--danger)" }}>
+            Vault Verification Warning
+          </Text>
+          <Text role="body" as="p">
+            The vault was created on the server, but one or more stored values differ from what you confirmed. Please review the vault details below:
+          </Text>
+          <ul
+            style={{
+              margin: 0,
+              paddingLeft: "1.25rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.5rem",
+            }}
+          >
+            {Object.entries(integrityError.mismatches).map(([field, diff]) => (
+              <li key={field} style={{ wordBreak: "break-all" }}>
+                <strong>{field}:</strong> expected <code>{diff?.expected}</code>, but server stored <code>{diff?.actual}</code>
+              </li>
+            ))}
+          </ul>
+          <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
+            <Link
+              to={`/vaults/${integrityError.vault.id}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "var(--accent)",
+                color: "var(--bg)",
+                padding: "0.6rem 1.25rem",
+                borderRadius: "var(--radius)",
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              Review Vault
+            </Link>
+            <Link
+              to="/vaults"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "transparent",
+                color: "var(--text)",
+                border: "1px solid var(--border)",
+                padding: "0.6rem 1.25rem",
+                borderRadius: "var(--radius)",
+                textDecoration: "none",
+              }}
+            >
+              All Vaults
+            </Link>
+          </div>
+        </div>
+      ) : showReview ? (
         <CreateVaultReview
+          name={name.trim()}
           amount={amount}
           deadline={deadline}
           successAddress={successAddress}
           failureAddress={failureAddress}
+          verifierAddress={verifierAddress.trim()}
           milestones={milestones}
+          isSubmitting={isSubmitting}
+          submissionUncertain={submissionUncertain}
+          error={submitError}
+          validationMessages={validationMessages}
+          reconciliationState={reconciliationState}
+          matchingVaults={matchingVaults}
+          canCheckAgain={Boolean(address && address === uncertainCreateRef.current?.creator)}
           onBack={handleBackToEdit}
           onConfirm={handleConfirm}
+          onCheckAgain={handleCheckAgain}
         />
       ) : (
+
         <>
           {allErrorEntries.length > 0 && (
             <div
@@ -318,6 +789,66 @@ export default function CreateVault() {
             </div>
           )}
 
+          {draftOffer && (
+            <div
+              role="status"
+              data-testid="create-vault-draft-banner"
+              style={{
+                border: "1px solid var(--accent)",
+                borderRadius: "var(--radius)",
+                padding: "0.75rem",
+                background: "var(--surface)",
+                marginBottom: "1rem",
+                maxWidth: 400,
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.75rem",
+              }}
+            >
+              <Text role="caption" as="p" style={{ margin: 0 }}>
+                Restore draft from{" "}
+                {new Date(draftOffer.savedAt).toLocaleString()}?
+              </Text>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={handleRestoreDraft}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    border: "none",
+                    borderRadius: "var(--radius)",
+                    background: "var(--accent)",
+                    color: "var(--bg)",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    minHeight: "44px",
+                  }}
+                >
+                  <Text role="caption" as="span">
+                    Restore
+                  </Text>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscardDraft}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius)",
+                    background: "transparent",
+                    color: "var(--text)",
+                    cursor: "pointer",
+                    minHeight: "44px",
+                  }}
+                >
+                  <Text role="caption" as="span">
+                    Discard
+                  </Text>
+                </button>
+              </div>
+            </div>
+          )}
+
           <form
             onSubmit={handleSubmit}
             noValidate
@@ -328,6 +859,21 @@ export default function CreateVault() {
               maxWidth: 400,
             }}
           >
+            <Field
+              ref={nameRef}
+              id="create-vault-name"
+              label="Vault name"
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setErrors((current) => ({ ...current, name: undefined }));
+              }}
+              placeholder="Website redesign"
+              maxLength={80}
+              error={errors.name}
+              required
+            />
             <Field
               ref={amountRef}
               id="create-vault-amount"
@@ -356,32 +902,39 @@ export default function CreateVault() {
               </p>
             )}
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-              {DEADLINE_PRESETS.map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => {
-                    const days = parseInt(preset, 10);
-                    setDeadline(computeFutureDeadline(days));
-                    setErrors((current) => ({
-                      ...current,
-                      deadline: undefined,
-                    }));
-                  }}
-                  style={{
-                    padding: "0.4rem 0.875rem",
-                    border: "1px solid var(--border)",
-                    background: "var(--surface)",
-                    color: "var(--muted)",
-                    borderRadius: "var(--radius)",
-                    fontSize: "0.85rem",
-                    cursor: "pointer",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  {getPresetLabel(preset)}
-                </button>
-              ))}
+              {DEADLINE_PRESETS.map((preset) => {
+                const days = getPresetDays(preset);
+                const isActive = selectedPreset === preset;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => {
+                      setDeadline(computeFutureDeadline(days));
+                      setSelectedPreset(preset);
+                      setErrors((current) => ({
+                        ...current,
+                        deadline: undefined,
+                      }));
+                    }}
+                    style={{
+                      padding: "0.4rem 0.875rem",
+                      border: `1px solid ${isActive ? "var(--accent)" : "var(--border)"}`,
+                      background: isActive
+                        ? "color-mix(in srgb, var(--accent) 12%, var(--surface))"
+                        : "var(--surface)",
+                      color: isActive ? "var(--accent)" : "var(--muted)",
+                      borderRadius: "var(--radius)",
+                      fontSize: "0.85rem",
+                      fontWeight: isActive ? 600 : 400,
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {getPresetLabel(preset)}
+                  </button>
+                );
+              })}
             </div>
             <Field
               ref={deadlineRef}
@@ -391,6 +944,7 @@ export default function CreateVault() {
               value={deadline}
               onChange={(e) => {
                 setDeadline(e.target.value);
+                setSelectedPreset(null);
                 setErrors((current) => ({ ...current, deadline: undefined }));
               }}
               error={errors.deadline}
@@ -428,6 +982,23 @@ export default function CreateVault() {
               }}
               placeholder="G..."
               error={errors.failureAddress}
+              required
+            />
+            <Field
+              ref={verifierAddressRef}
+              id="create-vault-verifier-address"
+              label="Verifier address"
+              type="text"
+              value={verifierAddress}
+              onChange={(e) => {
+                setVerifierAddress(e.target.value);
+                setErrors((current) => ({
+                  ...current,
+                  verifierAddress: undefined,
+                }));
+              }}
+              placeholder="G..."
+              error={errors.verifierAddress}
               required
             />
             <section
@@ -607,7 +1178,17 @@ export default function CreateVault() {
                 Add milestone
               </button>
             </section>
-            <EvidenceUpload onChange={setEvidenceUrl} />
+            <EvidenceUpload value={evidenceUrl ?? ""} onChange={setEvidenceUrl} />
+            {isApiEnabled() && (
+              <Text
+                role="caption"
+                as="p"
+                data-testid="evidence-api-note"
+                style={{ color: "var(--muted)", margin: 0 }}
+              >
+                Evidence links aren't saved by the API yet
+              </Text>
+            )}
             <button
               type="submit"
               style={{

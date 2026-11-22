@@ -1,0 +1,14 @@
+{
+  "name": "Disciplr — Programmable Capital Discipline",
+  "short_name": "Disciplr",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#F9FAFB",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

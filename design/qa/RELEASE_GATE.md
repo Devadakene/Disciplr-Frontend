@@ -2,26 +2,53 @@
 
 **Purpose:** Define the minimum pass/fail criteria that must be satisfied before a build is considered design-approved and eligible to merge to `main`.  
 **Applies to:** Any PR that touches `src/`, `design-system/`, `index.html`, or `public/`.  
-**Owner:** Design lead signs off; Engineering lead confirms CI gates.  
+**Owner:** Design lead signs off; Engineering lead confirms gates are met.  
 **Timeframe:** Review must complete within 96 hours of PR opening.
+
+---
+
+> **⚠️ Automation status (as of 2026-07-27)**
+>
+> This repository does **not** yet have a `.github/workflows/` CI pipeline.
+> The third-party visual-regression dependencies listed under G6
+> (`@percy/cli`, `@percy/playwright`, `chromatic`) are **not** installed.
+> Until workflows exist, **every gate is a manual reviewer checklist item**,
+> not an automated merge block.  A PR can currently merge to `main` without
+> any automated check catching a violation of G1–G8.
+>
+> **What is automated today:**
+> - `npm test` (Vitest) — enforces coverage thresholds
+>   (`statements: 50`, `branches: 80`, `functions: 65`, `lines: 50`) and
+>   runs component/unit tests.
+> - `npm run lint` (ESLint) — catches code-style and some a11y issues
+>   via `eslint-plugin-jsx-a11y` if configured.
+>
+> **Action required (tracked separately):**
+> 1. Stand up a `.github/workflows/ci.yml` that runs `npm test` and
+>    `npm run lint` on every PR touching the paths above.
+> 2. Integrate a visual-regression tool (Percy, Chromatic, or Playwright
+>    screenshot diff) and install the corresponding package before marking
+>    G6 as automated.
+> 3. Once each gate has an automated enforcement mechanism, update this
+>    table to remove the "Manual" caveat for that gate.
 
 ---
 
 ## Gate summary
 
-| Gate | Type | Blocks merge? |
-|---|---|---|
-| G1 — Contrast (WCAG 2.1 AA) | Hard | ✅ Yes |
-| G2 — Focus management | Hard | ✅ Yes |
-| G3 — Touch targets | Hard | ✅ Yes |
-| G4 — No horizontal overflow | Hard | ✅ Yes |
-| G5 — Reduced-motion compliance | Hard | ✅ Yes |
-| G6 — Visual regression (Percy/Chromatic) | Hard | ✅ Yes (unapproved diffs) |
-| G7 — Screen reader smoke test | Hard | ✅ Yes (critical flows) |
-| G8 — Token alignment | Hard | ✅ Yes |
-| G9 — Dark mode contrast gaps | Soft | ⚠️ No (document only) |
-| G10 — Figma traceability | Soft | ⚠️ No (must document) |
-| G11 — Design critique sign-off | Soft | ⚠️ No (async OK) |
+| Gate | Type | Blocks merge? | Enforcement |
+|---|---|---|---|
+| G1 — Contrast (WCAG 2.1 AA) | Hard | ✅ Yes | Manual review |
+| G2 — Focus management | Hard | ✅ Yes | Manual review |
+| G3 — Touch targets | Hard | ✅ Yes | Manual review |
+| G4 — No horizontal overflow | Hard | ✅ Yes | Manual review |
+| G5 — Reduced-motion compliance | Hard | ✅ Yes | Manual review |
+| G6 — Visual regression (Percy/Chromatic) | Hard | ✅ Yes (unapproved diffs) | Manual screenshots — no CI tooling installed |
+| G7 — Screen reader smoke test | Hard | ✅ Yes (critical flows) | Manual review |
+| G8 — Token alignment | Hard | ✅ Yes | Manual review |
+| G9 — Dark mode contrast gaps | Soft | ⚠️ No (document only) | Manual review |
+| G10 — Figma traceability | Soft | ⚠️ No (must document) | Manual review |
+| G11 — Design critique sign-off | Soft | ⚠️ No (async OK) | Manual review |
 
 ---
 
@@ -223,3 +250,4 @@ If a hard gate cannot be met within the 96-hour window:
 | Date | Change | Author |
 |---|---|---|
 | 2026-04-29 | Initial version | Kiro |
+| 2026-07-27 | Added automation-status warning; annotated gate table with current enforcement mode; documented what is actually automated today (Vitest coverage, ESLint) vs what remains manual | Kiro |

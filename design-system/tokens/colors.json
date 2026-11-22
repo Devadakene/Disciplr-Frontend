@@ -270,11 +270,11 @@
         },
         "dark": {
           "$type": "color",
-          "$value": "#9CA3AF",
-          "$description": "Secondary text in dark mode",
-          "hex": "#9CA3AF",
-          "rgb": "rgb(156, 163, 175)",
-          "hsl": "hsl(218, 11%, 65%)"
+          "$value": "#D1D5DB",
+          "$description": "Secondary/caption text in dark mode (WCAG AA ≥ 4.5:1 on --bg)",
+          "hex": "#D1D5DB",
+          "rgb": "rgb(209, 213, 219)",
+          "hsl": "hsl(214, 12%, 84%)"
         }
       },
       "500": {

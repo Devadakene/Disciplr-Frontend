@@ -6,7 +6,7 @@ type ChartLegendColorKey = 'success' | 'failed' | 'comparison' | 'milestone' | '
 export type ChartLegendEntry = {
   label: string
   colorKey: ChartLegendColorKey
-  id: string
+  id?: string
 }
 
 type ChartLegendTokens = Pick<AnalyticsChartTokens, 'legendGap' | 'legendSwatchSize' | 'legendLabelRole'>
@@ -38,9 +38,9 @@ export function ChartLegend({ entries, colors, tokens, ariaLabel = 'Chart legend
         padding: 0,
       }}
     >
-      {entries.map((entry) => (
+      {entries.map((entry, index) => (
         <li
-          key={entry.id}
+          key={entry.id ?? `${entry.label}-${index}`}
           style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
         >
           <span
@@ -48,7 +48,7 @@ export function ChartLegend({ entries, colors, tokens, ariaLabel = 'Chart legend
             style={{
               width: tokens.legendSwatchSize,
               height: tokens.legendSwatchSize,
-              borderRadius: '999px',
+              borderRadius: 'var(--radius-full)',
               backgroundColor: colors[entry.colorKey],
               flex: 'none',
             }}

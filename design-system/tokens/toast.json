@@ -1,0 +1,20 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format.json",
+  "toast": {
+    "defaultDurationMs": {
+      "$type": "number",
+      "$value": 4000,
+      "$description": "Auto-dismiss duration for a default-priority toast, in milliseconds"
+    },
+    "maxVisible": {
+      "$type": "number",
+      "$value": 5,
+      "$description": "Maximum number of toasts displayed at once; older toasts are evicted when this cap is reached"
+    },
+    "reducedMotionDurationMs": {
+      "$type": "number",
+      "$value": 1500,
+      "$description": "Auto-dismiss duration when prefers-reduced-motion is set, in milliseconds. Enter/exit animations are also disabled by the consumer."
+    }
+  }
+}

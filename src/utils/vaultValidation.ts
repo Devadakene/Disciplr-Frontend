@@ -1,10 +1,11 @@
 export interface CreateVaultFormValues {
+  name: string;
   amount: string;
   deadline: string;
   successAddress: string;
   failureAddress: string;
+  verifierAddress: string;
   milestones?: CreateVaultMilestoneInput[];
-  verifierAddress?: string;
   milestoneTitle?: string;
   milestoneCriteria?: string;
 }
@@ -31,23 +32,33 @@ type CreateVaultFieldName = Exclude<
 
 export type CreateVaultErrors = Partial<
   Record<CreateVaultFieldName, string>
-> & {
+>
+ & {
   milestones?: CreateVaultMilestoneErrors;
 };
 
-const STELLAR_PUBLIC_KEY = /^G[A-Z2-7]{55}$/;
-const USDC_AMOUNT = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
+type CreateVaultValidationValues = Omit<
+  CreateVaultFormValues,
+  "name" | "verifierAddress"
+> &
+  Partial<Pick<CreateVaultFormValues, "name" | "verifierAddress">>;
+
+const USCC_AMOUNT = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
 
 export const MILESTONE_TITLE_MAX = 100;
 export const MILESTONE_CRITERIA_MAX = 500;
+export const VAULT_NAME_MIN = 3;
+export const VAULT_NAME_MAX = 80;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
 
-export function isValidStellarAddress(address: string): boolean {
-  return STELLAR_PUBLIC_KEY.test(address.trim());
-}
+import { isValidStellarAddress, isAccountAddress } from './stellarAddress';
+import { isApiEnabled } from '../services/api';
+export { isValidStellarAddress, isAccountAddress };
+
 
 export function isValidUsdcAmount(amount: string): boolean {
   const normalized = amount.trim();
-  if (!USDC_AMOUNT.test(normalized)) return false;
+  if (!USCC_AMOUNT.test(normalized)) return false;
   return Number(normalized) > 0;
 }
 
@@ -103,12 +114,24 @@ export function validateMilestones(
 }
 
 export function validateCreateVault(
-  values: CreateVaultFormValues,
+  values: CreateVaultValidationValues,
   now = new Date(),
+  creatorAddress?: string | null,
 ): CreateVaultErrors {
   const errors: CreateVaultErrors = {};
+  const rawName = values.name ?? "";
+  const name = rawName.trim();
   const successAddress = values.successAddress.trim();
   const failureAddress = values.failureAddress.trim();
+  const verifierAddress = values.verifierAddress?.trim() ?? "";
+
+  if (!name) {
+    errors.name = "Enter a vault name.";
+  } else if (CONTROL_CHARACTERS.test(rawName)) {
+    errors.name = "Vault name cannot contain control characters.";
+  } else if (name.length < VAULT_NAME_MIN || name.length > VAULT_NAME_MAX) {
+    errors.name = `Vault name must be between ${VAULT_NAME_MIN} and ${VAULT_NAME_MAX} characters.`;
+  }
 
   if (!isValidUsdcAmount(values.amount)) {
     errors.amount = "Enter a positive USDC amount with up to 7 decimal places.";
@@ -118,32 +141,54 @@ export function validateCreateVault(
     errors.deadline = "Choose a future deadline.";
   }
 
-  if (!isValidStellarAddress(successAddress)) {
-    errors.successAddress = "Enter a valid Stellar public key starting with G.";
-  }
-
-  if (!isValidStellarAddress(failureAddress)) {
-    errors.failureAddress = "Enter a valid Stellar public key starting with G.";
-  } else if (successAddress === failureAddress) {
-    errors.failureAddress =
-      "Failure destination must be different from success destination.";
-  }
-
-  // Validate verifierAddress only when provided and non-empty
-  if (values.verifierAddress !== undefined) {
-    const verifierAddress = values.verifierAddress.trim();
-    if (verifierAddress) {
-      if (!isValidStellarAddress(verifierAddress)) {
-        errors.verifierAddress =
-          "Enter a valid Stellar public key starting with G.";
-      } else if (verifierAddress === successAddress) {
-        errors.verifierAddress =
-          "Verifier must be different from the success destination.";
-      } else if (verifierAddress === failureAddress) {
-        errors.verifierAddress =
-          "Verifier must be different from the failure destination.";
-      }
+  if (isApiEnabled()) {
+    if (!isValidStellarAddress(successAddress)) {
+      errors.successAddress = "Enter a valid Stellar public key starting with G or C.";
+    } else if (!isAccountAddress(successAddress)) {
+      errors.successAddress = "Enter a Stellar account address (starts with G). Contract addresses aren't supported yet.";
     }
+
+    if (!isValidStellarAddress(failureAddress)) {
+      errors.failureAddress = "Enter a valid Stellar public key starting with G or C.";
+    } else if (!isAccountAddress(failureAddress)) {
+      errors.failureAddress = "Enter a Stellar account address (starts with G). Contract addresses aren't supported yet.";
+    } else if (successAddress === failureAddress) {
+      errors.failureAddress =
+        "Failure destination must be different from success destination.";
+    }
+  } else {
+    if (!isValidStellarAddress(successAddress)) {
+      errors.successAddress = "Enter a valid Stellar public key starting with G or C.";
+    }
+
+    if (!isValidStellarAddress(failureAddress)) {
+      errors.failureAddress = "Enter a valid Stellar public key starting with G or C.";
+    } else if (successAddress === failureAddress) {
+      errors.failureAddress =
+        "Failure destination must be different from success destination.";
+    }
+  }
+
+
+  if (!verifierAddress) {
+    errors.verifierAddress = "Enter a verifier address.";
+  } else if (!isValidStellarAddress(verifierAddress)) {
+    errors.verifierAddress =
+      "Enter a valid Stellar public key starting with G or C.";
+  } else if (!isAccountAddress(verifierAddress)) {
+    errors.verifierAddress =
+      "Enter a Stellar account address (starts with G). Contract addresses aren't supported yet.";
+  } else if (
+    creatorAddress?.trim() &&
+    verifierAddress === creatorAddress.trim()
+  ) {
+    errors.verifierAddress = "Verifier cannot be you.";
+  } else if (verifierAddress === successAddress) {
+    errors.verifierAddress =
+      "Verifier must be different from the success destination.";
+  } else if (verifierAddress === failureAddress) {
+    errors.verifierAddress =
+      "Verifier must be different from the failure destination.";
   }
 
   // Validate milestones array only when the field is present

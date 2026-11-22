@@ -26,6 +26,9 @@ describe('ThemeContext safe storage', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     } as unknown as MediaQueryList));
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('style');
     vi.spyOn(Storage.prototype, 'getItem');
     vi.spyOn(Storage.prototype, 'setItem');
   });
@@ -329,3 +332,249 @@ describe('ThemeContext OS preference following', () => {
     expect(mediaEventHandlers.has('(prefers-color-scheme: dark)')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #1266 — safeSetItem must accept only UserPreference values.
+// The fix narrows the `value` parameter from `string` to `UserPreference`,
+// eliminating the unsafe `as UserPreference` cast in the catch block.
+//
+// TypeScript enforces this at the call boundary (compile time), so the runtime
+// test here confirms the in-memory fallback path only ever holds a valid
+// UserPreference, never an arbitrary string.
+// ---------------------------------------------------------------------------
+describe('ThemeContext safeSetItem type safety (issue #1266)', () => {
+  beforeEach(() => {
+    // Install the storage spy FIRST so vi.mocked() can find it within each test.
+    vi.spyOn(Storage.prototype, 'setItem');
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList));
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('in-memory fallback stores a valid UserPreference when setItem throws for "light"', () => {
+    // Now the spy is already in place; override it to throw.
+    vi.mocked(Storage.prototype.setItem).mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    // Drive ThemeProvider to call safeSetItem with 'light'.
+    fireEvent.click(screen.getByText('Toggle')); // system → light
+
+    // The component should reflect 'light' even though localStorage.setItem threw,
+    // confirming the in-memory fallback received a valid UserPreference value.
+    expect(screen.getByTestId('preference')).toHaveTextContent('light');
+    expect(screen.getByTestId('theme')).toHaveTextContent('light');
+  });
+
+  test('in-memory fallback stores a valid UserPreference when setItem throws for "dark"', () => {
+    vi.mocked(Storage.prototype.setItem).mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Toggle')); // system → light
+    fireEvent.click(screen.getByText('Toggle')); // light → dark
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+    expect(screen.getByTestId('theme')).toHaveTextContent('dark');
+  });
+
+  test('in-memory fallback stores a valid UserPreference when setItem throws for "system"', () => {
+    vi.mocked(Storage.prototype.setItem).mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    // Force a round-trip back to system to confirm the fallback accepts it.
+    fireEvent.click(screen.getByText('Toggle')); // system → light
+    fireEvent.click(screen.getByText('Toggle')); // light → dark
+    fireEvent.click(screen.getByText('Toggle')); // dark → system
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('all three valid UserPreference values are accepted by setTheme without error', () => {
+    // Runtime complement to the compile-time narrowing: confirms the call sites
+    // that already pass UserPreference values continue to work after the type fix.
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    expect(() => fireEvent.click(screen.getByText('Set Light'))).not.toThrow();
+    expect(() => fireEvent.click(screen.getByText('Set Dark'))).not.toThrow();
+    expect(() => fireEvent.click(screen.getByText('Set System'))).not.toThrow();
+  });
+});
+
+describe('ThemeContext pre-paint & cross-tab sync', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList));
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('style');
+    const existingMetas = document.querySelectorAll('meta[name="theme-color"]');
+    existingMetas.forEach((m) => m.remove());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('initial state taken from data-theme when no stored preference', () => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+    expect(screen.getByTestId('theme')).toHaveTextContent('dark');
+  });
+
+  test('does not write to localStorage on initial mount', () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(setItemSpy).not.toHaveBeenCalled();
+  });
+
+  test('dispatching a StorageEvent updates the preference and theme', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'disciplr-theme',
+          newValue: 'dark',
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+    expect(screen.getByTestId('theme')).toHaveTextContent('dark');
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+  });
+
+  test('dispatching a StorageEvent with null resets preference to system', () => {
+    localStorage.setItem('disciplr-theme', 'dark');
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'disciplr-theme',
+          newValue: null,
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('an invalid StorageEvent value is ignored', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'disciplr-theme',
+          newValue: 'invalid-theme-value',
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('an unrelated StorageEvent key is ignored', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'other-key',
+          newValue: 'dark',
+        })
+      );
+    });
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('the theme-color meta tag is updated when resolved theme changes', () => {
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>
+    );
+
+    // Initial light
+    const meta = document.querySelector('meta[name="theme-color"]:not([media])');
+    expect(meta).not.toBeNull();
+    expect(meta).toHaveAttribute('content', '#F9FAFB');
+
+    // Switch to dark
+    fireEvent.click(screen.getByText('Set Dark'));
+    expect(meta).toHaveAttribute('content', '#111827');
+
+    // Switch to light
+    fireEvent.click(screen.getByText('Set Light'));
+    expect(meta).toHaveAttribute('content', '#F9FAFB');
+  });
+});
+

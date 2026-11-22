@@ -2,12 +2,23 @@ import { vi, describe, beforeEach, test, expect } from 'vitest';
 
 const walletState = vi.hoisted(() => ({
     connect: vi.fn(),
+    cancelConnect: vi.fn(),
+    connectDemo: vi.fn(),
     isConnecting: false,
     error: null as string | null,
+    address: null as string | null,
 }));
 
 vi.mock('@/context/WalletContext', () => ({
     useWallet: () => walletState,
+}));
+
+const telemetryMocks = vi.hoisted(() => ({
+    recordWalletTelemetry: vi.fn(),
+}));
+
+vi.mock('../../../utils/walletTelemetry', () => ({
+    recordWalletTelemetry: telemetryMocks.recordWalletTelemetry,
 }));
 
 import { act, render, screen, fireEvent } from '@testing-library/react';
@@ -19,10 +30,15 @@ function renderModal(onClose = vi.fn()) {
 
 describe('WalletSelectionModal', () => {
     beforeEach(() => {
-        walletState.connect = vi.fn().mockResolvedValue(undefined);
+        walletState.connect = vi.fn().mockResolvedValue(true);
+        walletState.cancelConnect = vi.fn();
+        walletState.connectDemo = vi.fn();
         walletState.isConnecting = false;
         walletState.error = null;
+        walletState.address = null;
+        telemetryMocks.recordWalletTelemetry.mockClear();
     });
+
 
     test('renders the title and Freighter option', () => {
         renderModal();
@@ -41,12 +57,12 @@ describe('WalletSelectionModal', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    test('disables the button and shows loader while isConnecting', () => {
+    test('keeps the Freighter action available while connecting so the user can recover', () => {
         walletState.isConnecting = true;
         renderModal();
 
         const btn = screen.getByText('Freighter').closest('button')!;
-        expect(btn).toBeDisabled();
+        expect(btn).not.toBeDisabled();
         expect(btn.querySelector('.loader')).toBeInTheDocument();
     });
 
@@ -81,10 +97,10 @@ describe('WalletSelectionModal', () => {
         expect(() => renderModal()).not.toThrow();
     });
 
-    test('renders updated error after connect rejection', async () => {
+    test('does not call onClose and shows error after connect rejection', async () => {
         walletState.connect.mockImplementation(() => {
             walletState.error = 'Failed to connect wallet. Make sure Freighter is installed and unlocked.';
-            return Promise.resolve();
+            return Promise.resolve(false);
         });
         const onClose = vi.fn();
         const { rerender } = render(<WalletSelectionModal onClose={onClose} />);
@@ -92,15 +108,16 @@ describe('WalletSelectionModal', () => {
         await act(async () => {
             screen.getByText('Freighter').closest('button')!.click();
         });
-        rerender(<WalletSelectionModal onClose={onClose} />);
 
+        expect(onClose).not.toHaveBeenCalled();
+        rerender(<WalletSelectionModal onClose={onClose} />);
         expect(screen.getByText('Failed to connect wallet. Make sure Freighter is installed and unlocked.')).toBeInTheDocument();
     });
 
-    test('renders updated error on access denied', async () => {
+    test('does not call onClose and shows error on access denied', async () => {
         walletState.connect.mockImplementation(() => {
             walletState.error = 'Wallet access denied.';
-            return Promise.resolve();
+            return Promise.resolve(false);
         });
         const onClose = vi.fn();
         const { rerender } = render(<WalletSelectionModal onClose={onClose} />);
@@ -108,8 +125,132 @@ describe('WalletSelectionModal', () => {
         await act(async () => {
             screen.getByText('Freighter').closest('button')!.click();
         });
-        rerender(<WalletSelectionModal onClose={onClose} />);
 
+        expect(onClose).not.toHaveBeenCalled();
+        rerender(<WalletSelectionModal onClose={onClose} />);
         expect(screen.getByText('Wallet access denied.')).toBeInTheDocument();
+    });
+
+    test('does not call onClose and shows error when network error occurs', async () => {
+        walletState.connect.mockImplementation(() => {
+            walletState.error = 'Network error connecting to wallet.';
+            return Promise.resolve(false);
+        });
+        const onClose = vi.fn();
+        const { rerender } = render(<WalletSelectionModal onClose={onClose} />);
+
+        await act(async () => {
+            screen.getByText('Freighter').closest('button')!.click();
+        });
+
+        expect(onClose).not.toHaveBeenCalled();
+        rerender(<WalletSelectionModal onClose={onClose} />);
+        expect(screen.getByText('Network error connecting to wallet.')).toBeInTheDocument();
+    });
+
+    test('does not call onClose if connect throws an unexpected error', async () => {
+        walletState.connect.mockRejectedValue(new Error('Unexpected wallet failure'));
+        const onClose = vi.fn();
+        render(<WalletSelectionModal onClose={onClose} />);
+
+        await act(async () => {
+            screen.getByText('Freighter').closest('button')!.click();
+        });
+
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
+    test('prevents multiple connect calls on double click', async () => {
+        let resolveConnect: (value: boolean) => void;
+        walletState.connect.mockImplementation(() => new Promise((resolve) => {
+            resolveConnect = resolve;
+        }));
+        const { onClose } = renderModal();
+
+        const btn = screen.getByText('Freighter').closest('button')!;
+        
+        await act(async () => {
+            btn.click();
+            btn.click();
+            btn.click();
+        });
+
+        expect(walletState.connect).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            resolveConnect(true);
+        });
+        
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test('records an ignored telemetry event when a second click arrives while pending', async () => {
+        let resolveConnect: (value: boolean) => void;
+        walletState.connect.mockImplementation(() => new Promise((resolve) => {
+            resolveConnect = resolve;
+        }));
+        renderModal();
+
+        const btn = screen.getByText('Freighter').closest('button')!;
+
+        await act(async () => {
+            btn.click();
+            btn.click();
+        });
+
+        expect(walletState.connect).toHaveBeenCalledTimes(1);
+        expect(telemetryMocks.recordWalletTelemetry).toHaveBeenCalledWith(
+            expect.objectContaining({ event: 'wallet.connect.ignored', reason: 'button_pending' }),
+        );
+
+        await act(async () => {
+            resolveConnect(true);
+        });
+    });
+
+    test('does not call onClose if unmounted before connect resolves', async () => {
+        let resolveConnect: (value: boolean) => void;
+        walletState.connect.mockImplementation(() => new Promise((resolve) => {
+            resolveConnect = resolve;
+        }));
+        
+        const onClose = vi.fn();
+        const { unmount } = render(<WalletSelectionModal onClose={onClose} />);
+        
+        const btn = screen.getByText('Freighter').closest('button')!;
+        
+        await act(async () => {
+            btn.click();
+        });
+
+        unmount();
+
+        await act(async () => {
+            resolveConnect(true);
+        });
+
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
+    test('calls cancelConnect and onClose when modal is closed during a connection attempt', () => {
+        walletState.isConnecting = true;
+        const { onClose } = renderModal();
+
+        // Click the X close button while connecting
+        const closeBtn = document.querySelector('.wallet-close-btn') as HTMLElement;
+        closeBtn.click();
+
+        expect(walletState.cancelConnect).toHaveBeenCalledTimes(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test('shows timeout error with retry hint and keeps Freighter button enabled', () => {
+        walletState.error = "Freighter didn't respond. Check the extension popup and try again.";
+        walletState.isConnecting = false;
+        renderModal();
+
+        expect(screen.getByText(/Freighter didn't respond/)).toBeInTheDocument();
+        const btn = screen.getByText('Freighter').closest('button')!;
+        expect(btn).not.toBeDisabled();
     });
 });

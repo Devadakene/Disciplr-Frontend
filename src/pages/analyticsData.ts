@@ -102,12 +102,14 @@ export const milestoneTypes = [
 ]
 
 // Benchmarking data
-export const benchmarkData = [
-  { metric: 'Success Rate', you: 85, platform: 68 },
-  { metric: 'Avg Duration', you: 18, platform: 14 },
-  { metric: 'Streak', you: 5, platform: 3 },
-  { metric: 'Milestones/mo', you: 9, platform: 5 },
-]
+export function computeBenchmarkData(kpis: { averageSuccessRate: number; totalMilestones: number; streak?: number; avgDuration?: number }) {
+  return [
+    { metric: 'Success Rate', you: Math.round(kpis.averageSuccessRate), platform: 68, unit: '%' },
+    { metric: 'Avg Duration', you: kpis.avgDuration ?? 0, platform: 14, unit: 'd' },
+    { metric: 'Streak', you: kpis.streak ?? 0, platform: 3, unit: '' },
+    { metric: 'Milestones/mo', you: kpis.totalMilestones, platform: 5, unit: '' },
+  ]
+}
 
 export const TEAM_CHART_DATA = [
   { name: 'Alice', rate: 94 },

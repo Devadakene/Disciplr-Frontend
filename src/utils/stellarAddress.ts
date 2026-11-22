@@ -1,10 +1,55 @@
-export function isValidStellarAddress(value: string): boolean {
-  if (!value || typeof value !== 'string') return false;
-  if (value.length !== 56) return false;
-  
-  const prefix = value[0];
-  if (prefix !== 'G' && prefix !== 'C') return false;
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-  const base32Regex = /^[A-Z2-7]+$/;
-  return base32Regex.test(value);
+function decodeAndValidateStrKey(trimmed: string, allowedVersions: number[]): boolean {
+  // 56 base32 symbols encode exactly 35 bytes: version, 32-byte key,
+  // and a two-byte checksum. There are no unused bits or padding.
+  const decoded = new Uint8Array(35);
+  let buffer = 0;
+  let bits = 0;
+  let offset = 0;
+  for (const character of trimmed) {
+    buffer = (buffer << 5) | BASE32_ALPHABET.indexOf(character);
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      decoded[offset++] = (buffer >> bits) & 0xff;
+      buffer &= (1 << bits) - 1;
+    }
+  }
+
+  // Checking the entire version byte also rejects unsupported algorithms (SEP-23).
+  if (!allowedVersions.includes(decoded[0])) return false;
+
+  // CRC16-XModem: polynomial 0x1021, initial value zero, no reflection
+  // or final XOR. StrKey stores the checksum in little-endian order.
+  let checksum = 0;
+  for (let i = 0; i < 33; i++) {
+    checksum ^= decoded[i] << 8;
+    for (let bit = 0; bit < 8; bit++) {
+      checksum = (checksum & 0x8000) !== 0
+        ? (checksum << 1) ^ 0x1021
+        : checksum << 1;
+      checksum &= 0xffff;
+    }
+  }
+  return checksum === (decoded[33] | (decoded[34] << 8));
 }
+
+/** Validate a Stellar account or contract StrKey, including its checksum. */
+export function isValidStellarAddress(value: string): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!/^[GC][A-Z2-7]{55}$/.test(trimmed)) return false;
+
+  return decodeAndValidateStrKey(trimmed, [6 << 3, 2 << 3]);
+}
+
+/** Validate a Stellar account StrKey (starts with G), including its checksum. Contract addresses (C...) are rejected. */
+export function isAccountAddress(value: string): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!/^G[A-Z2-7]{55}$/.test(trimmed)) return false;
+
+  return decodeAndValidateStrKey(trimmed, [6 << 3]);
+}
+

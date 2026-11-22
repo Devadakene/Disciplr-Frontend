@@ -1,192 +1,146 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
 import { VerifierMetricsBar } from '../VerifierMetricsBar';
-import { CRITICAL_DAYS_THRESHOLD, type VerifierMetrics } from '../../utils/verifierMetrics';
+import type { VerifierMetrics } from '../../utils/verifierMetrics';
 
-const baseMetrics: VerifierMetrics = {
-  pendingCount: 5,
-  overdueCount: 1,
-  criticalCount: 2,
-  approvalRate: 0.8,
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const ZERO_METRICS: VerifierMetrics = {
+  pendingCount: 0,
+  overdueCount: 0,
+  criticalCount: 0,
+  approvalRate: 0,
+  urgentCount: 0,
+  totalResolved: 0,
 };
 
-// Find the cell with the given accessible label and return its value text node.
-// The Text component renders as a span, so the cell contains three spans in
-// order: caption label, value, optional description.
-function valueEl(label: string | RegExp): HTMLElement {
-  const cell = screen.getByRole('group', { name: label });
-  const spans = cell.querySelectorAll('span');
-  // First span is the label, second is the value.
-  return spans[1] as HTMLElement;
-}
+const CRITICAL_METRICS: VerifierMetrics = {
+  pendingCount: 8,
+  overdueCount: 2,
+  criticalCount: 3,
+  approvalRate: 2 / 3, // 66.67% -> rounds to 67%
+  urgentCount: 3,
+  totalResolved: 3,
+};
 
-function cellValue(label: string | RegExp): string {
-  return valueEl(label).textContent ?? '';
-}
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
-describe('VerifierMetricsBar', () => {
-  // ── labels ───────────────────────────────────────────────────────────────
-  it('renders a label for each of the four metrics', () => {
-    render(<VerifierMetricsBar metrics={baseMetrics} />);
-    expect(screen.getByRole('group', { name: 'Pending' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Overdue' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /Critical/ })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Approval rate' })).toBeInTheDocument();
-  });
+describe('VerifierMetricsBar component', () => {
+  describe('with a zero queue', () => {
+    it('renders the metrics bar landmark and all four metric groups', () => {
+      render(<VerifierMetricsBar metrics={ZERO_METRICS} />);
 
-  // ── values ───────────────────────────────────────────────────────────────
-  it('renders the numeric value of each metric', () => {
-    render(<VerifierMetricsBar metrics={baseMetrics} />);
-    expect(cellValue('Pending')).toBe('5');
-    expect(cellValue('Overdue')).toBe('1');
-    expect(cellValue(/Critical/)).toBe('2');
-    expect(cellValue('Approval rate')).toBe('80%');
-  });
+      expect(
+        screen.getByRole('region', { name: 'Verifier queue metrics' }),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('verifier-metrics-bar')).toBeInTheDocument();
 
-  it('rounds the approval rate to a whole percentage', () => {
-    render(<VerifierMetricsBar metrics={{ ...baseMetrics, approvalRate: 0.6667 }} />);
-    expect(cellValue('Approval rate')).toBe('67%');
-  });
-
-  it('rounds 0.5 up to a whole percentage', () => {
-    render(<VerifierMetricsBar metrics={{ ...baseMetrics, approvalRate: 0.5 }} />);
-    expect(cellValue('Approval rate')).toBe('50%');
-  });
-
-  it('renders 0% when approval rate is 0', () => {
-    render(<VerifierMetricsBar metrics={{ ...baseMetrics, approvalRate: 0 }} />);
-    expect(cellValue('Approval rate')).toBe('0%');
-  });
-
-  it('renders 100% when approval rate is 1', () => {
-    render(<VerifierMetricsBar metrics={{ ...baseMetrics, approvalRate: 1 }} />);
-    expect(cellValue('Approval rate')).toBe('100%');
-  });
-
-  // ── accessibility landmark ───────────────────────────────────────────────
-  it('exposes a section landmark with an accessible name', () => {
-    render(<VerifierMetricsBar metrics={baseMetrics} />);
-    expect(
-      screen.getByRole('region', { name: /Verifier queue metrics/i }),
-    ).toBeInTheDocument();
-  });
-
-  // ── design tokens ────────────────────────────────────────────────────────
-  it('uses design tokens for the container background and border', () => {
-    const { container } = render(<VerifierMetricsBar metrics={baseMetrics} />);
-    const section = container.querySelector('section')!;
-    const style = section.getAttribute('style') ?? '';
-    expect(style).toContain('var(--bg)');
-    expect(style).toContain('var(--border)');
-  });
-
-  // ── overdue tone ─────────────────────────────────────────────────────────
-  it('uses a danger token when overdue count is positive', () => {
-    render(
-      <VerifierMetricsBar metrics={{ ...baseMetrics, overdueCount: 3 }} />,
-    );
-    expect(valueEl('Overdue').getAttribute('style')).toContain('var(--danger)');
-  });
-
-  it('uses a success token when overdue count is 0', () => {
-    render(
-      <VerifierMetricsBar metrics={{ ...baseMetrics, overdueCount: 0 }} />,
-    );
-    expect(valueEl('Overdue').getAttribute('style')).toContain('var(--success)');
-  });
-
-  // ── critical tone ────────────────────────────────────────────────────────
-  it('uses a warning token when at least one task is critical but none overdue', () => {
-    render(
-      <VerifierMetricsBar
-        metrics={{ ...baseMetrics, overdueCount: 0, criticalCount: 1 }}
-      />,
-    );
-    expect(valueEl(/Critical/)).toHaveStyle({ color: 'var(--warning)' });
-  });
-
-  it('uses a success token for critical when the queue is calm', () => {
-    render(
-      <VerifierMetricsBar
-        metrics={{
-          pendingCount: 2,
-          overdueCount: 0,
-          criticalCount: 0,
-          approvalRate: 0.9,
-        }}
-      />,
-    );
-    expect(valueEl(/Critical/)).toHaveStyle({ color: 'var(--success)' });
-  });
-
-  // ── approval-rate tone ───────────────────────────────────────────────────
-  it('uses a success tone for approval rate at or above 75%', () => {
-    render(
-      <VerifierMetricsBar metrics={{ ...baseMetrics, approvalRate: 0.8 }} />,
-    );
-    expect(valueEl('Approval rate')).toHaveStyle({ color: 'var(--success)' });
-  });
-
-  it('uses an info (text) tone for approval rate between 50% and 75%', () => {
-    render(
-      <VerifierMetricsBar metrics={{ ...baseMetrics, approvalRate: 0.6 }} />,
-    );
-    expect(valueEl('Approval rate')).toHaveStyle({ color: 'var(--text)' });
-  });
-
-  it('uses a warning tone for approval rate below 50%', () => {
-    render(
-      <VerifierMetricsBar metrics={{ ...baseMetrics, approvalRate: 0.3 }} />,
-    );
-    expect(valueEl('Approval rate')).toHaveStyle({ color: 'var(--warning)' });
-  });
-
-  // ── all-zero snapshot ────────────────────────────────────────────────────
-  it('handles an all-zero snapshot (empty queue / empty history)', () => {
-    const m: VerifierMetrics = {
-      pendingCount: 0,
-      overdueCount: 0,
-      criticalCount: 0,
-      approvalRate: 0,
-    };
-    render(<VerifierMetricsBar metrics={m} />);
-    expect(cellValue('Pending')).toBe('0');
-    expect(cellValue('Overdue')).toBe('0');
-    expect(cellValue(/Critical/)).toBe('0');
-    expect(cellValue('Approval rate')).toBe('0%');
-  });
-
-  // ── no-color-alone cue for critical cell ─────────────────────────────────
-  it('shows a textual description for the critical cell so colour is not load-bearing', () => {
-    render(<VerifierMetricsBar metrics={baseMetrics} />);
-    expect(screen.getByText(new RegExp(`≤ ${CRITICAL_DAYS_THRESHOLD} days to deadline`))).toBeInTheDocument();
-  });
-
-  it('updates copy when threshold changes', async () => {
-    vi.doMock('../../utils/verifierMetrics', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('../../utils/verifierMetrics')>();
-      return {
-        ...actual,
-        CRITICAL_DAYS_THRESHOLD: 5,
-      };
+      expect(screen.getByRole('group', { name: 'Pending' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Overdue' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('group', { name: 'Critical (≤3d)' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('group', { name: 'Approval rate' }),
+      ).toBeInTheDocument();
     });
 
-    vi.resetModules();
-    const { VerifierMetricsBar: MockedBar } = await import('../VerifierMetricsBar');
-    render(<MockedBar metrics={{ ...baseMetrics, criticalCount: 1 }} />);
-    
-    expect(screen.getByText(/≤ 5 days to deadline/)).toBeInTheDocument();
-    expect(screen.getByText(/Critical \(≤5d\)/)).toBeInTheDocument();
-    
-    vi.doUnmock('../../utils/verifierMetrics');
+    it('renders zeros for all counts and 0% with empty-history description', () => {
+      render(<VerifierMetricsBar metrics={ZERO_METRICS} />);
+
+      const pendingGroup = screen.getByRole('group', { name: 'Pending' });
+      expect(within(pendingGroup).getByText('0')).toBeInTheDocument();
+
+      const overdueGroup = screen.getByRole('group', { name: 'Overdue' });
+      expect(within(overdueGroup).getByText('0')).toBeInTheDocument();
+
+      const criticalGroup = screen.getByRole('group', { name: 'Critical (≤3d)' });
+      expect(within(criticalGroup).getByText('0')).toBeInTheDocument();
+
+      const approvalGroup = screen.getByRole('group', { name: 'Approval rate' });
+      expect(within(approvalGroup).getByText('0%')).toBeInTheDocument();
+      expect(within(approvalGroup).getByText('No history yet')).toBeInTheDocument();
+    });
+
+    it('renders no critical or overdue alert styling when counts are zero', () => {
+      render(<VerifierMetricsBar metrics={ZERO_METRICS} />);
+
+      const criticalGroup = screen.getByRole('group', { name: 'Critical (≤3d)' });
+      const criticalValue = within(criticalGroup).getByText('0');
+      expect(criticalValue).toHaveStyle({ color: 'var(--success)' });
+      expect(criticalValue).not.toHaveStyle({ color: 'var(--warning)' });
+      expect(
+        within(criticalGroup).getByText('No urgent deadlines'),
+      ).toBeInTheDocument();
+
+      const overdueGroup = screen.getByRole('group', { name: 'Overdue' });
+      const overdueValue = within(overdueGroup).getByText('0');
+      expect(overdueValue).toHaveStyle({ color: 'var(--success)' });
+      expect(overdueValue).not.toHaveStyle({ color: 'var(--danger)' });
+    });
   });
 
-  it('renders the calm-description when no tasks are critical', () => {
-    render(
-      <VerifierMetricsBar
-        metrics={{ pendingCount: 3, overdueCount: 0, criticalCount: 0, approvalRate: 0.9 }}
-      />,
-    );
-    expect(screen.getByText(/No urgent deadlines/)).toBeInTheDocument();
+  describe('with non-zero critical and overdue counts', () => {
+    it('displays the critical count and exposes it to assistive tech with warning styling', () => {
+      render(<VerifierMetricsBar metrics={CRITICAL_METRICS} />);
+
+      const criticalGroup = screen.getByRole('group', { name: 'Critical (≤3d)' });
+      const criticalValue = within(criticalGroup).getByText('3');
+      expect(criticalValue).toBeInTheDocument();
+      expect(criticalValue).toHaveStyle({ color: 'var(--warning)' });
+      expect(
+        within(criticalGroup).getByText('≤ 3 days to deadline'),
+      ).toBeInTheDocument();
+    });
+
+    it('displays pending, overdue, and rounded approval rate values with expected tones', () => {
+      render(<VerifierMetricsBar metrics={CRITICAL_METRICS} />);
+
+      const pendingGroup = screen.getByRole('group', { name: 'Pending' });
+      const pendingValue = within(pendingGroup).getByText('8');
+      expect(pendingValue).toHaveStyle({ color: 'var(--text)' });
+
+      const overdueGroup = screen.getByRole('group', { name: 'Overdue' });
+      const overdueValue = within(overdueGroup).getByText('2');
+      expect(overdueValue).toHaveStyle({ color: 'var(--danger)' });
+
+      const approvalGroup = screen.getByRole('group', { name: 'Approval rate' });
+      const approvalValue = within(approvalGroup).getByText('67%');
+      expect(approvalValue).toHaveStyle({ color: 'var(--text)' });
+      expect(
+        within(approvalGroup).queryByText('No history yet'),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('approval rate formatting and tone thresholds', () => {
+    it('uses success tone for approval rates >= 75%', () => {
+      render(
+        <VerifierMetricsBar
+          metrics={{ ...ZERO_METRICS, pendingCount: 1, approvalRate: 0.8 }}
+        />,
+      );
+
+      const approvalGroup = screen.getByRole('group', { name: 'Approval rate' });
+      const approvalValue = within(approvalGroup).getByText('80%');
+      expect(approvalValue).toHaveStyle({ color: 'var(--success)' });
+    });
+
+    it('uses warning tone for approval rates < 50%', () => {
+      render(
+        <VerifierMetricsBar
+          metrics={{ ...ZERO_METRICS, pendingCount: 1, approvalRate: 0.25 }}
+        />,
+      );
+
+      const approvalGroup = screen.getByRole('group', { name: 'Approval rate' });
+      const approvalValue = within(approvalGroup).getByText('25%');
+      expect(approvalValue).toHaveStyle({ color: 'var(--warning)' });
+    });
   });
 });

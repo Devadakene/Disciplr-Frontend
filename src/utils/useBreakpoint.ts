@@ -18,7 +18,9 @@ function getInitialMatch(breakpoint: Breakpoint) {
     return false
   }
 
-  return window.matchMedia(getBreakpointQuery(breakpoint)).matches
+  // Defensive: a mocked or restored `matchMedia` may return undefined instead
+  // of a MediaQueryList — treat that as "not matching" rather than crashing.
+  return window.matchMedia(getBreakpointQuery(breakpoint))?.matches === true
 }
 
 export function useBreakpoint(breakpoint: Breakpoint) {
@@ -31,8 +33,13 @@ export function useBreakpoint(breakpoint: Breakpoint) {
     }
 
     const mediaQuery = window.matchMedia(getBreakpointQuery(breakpoint))
+    if (!mediaQuery || typeof mediaQuery.addEventListener !== 'function') {
+      setMatches(false)
+      return
+    }
+
     const syncMatch = (event?: MediaQueryListEvent) => {
-      setMatches(event ? event.matches : mediaQuery.matches)
+      setMatches(event ? event.matches : mediaQuery.matches === true)
     }
 
     syncMatch()

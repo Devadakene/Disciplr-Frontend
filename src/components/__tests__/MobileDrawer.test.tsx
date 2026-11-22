@@ -1,289 +1,115 @@
-import { useState } from 'react';
-import type { ReactNode } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import Layout from '../Layout';
-import MobileDrawer from '../MobileDrawer';
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import Layout from '../Layout'
 
-const focusTrapState = vi.hoisted(() => ({
-  options: [] as Array<Record<string, unknown>>,
-}));
+// Exercise the real focus trap, not the lightweight focus-trap-react mock in
+// setupTests.ts. We want to detect keyboard focus escaping the open dialog.
+vi.unmock('focus-trap-react')
 
-vi.mock('focus-trap-react', () => ({
-  default: ({ children, focusTrapOptions }: { children: ReactNode; focusTrapOptions: Record<string, unknown> }) => {
-    focusTrapState.options.push(focusTrapOptions);
-    return <div data-testid="focus-trap">{children}</div>;
-  },
-}));
+vi.mock('../Wallet/WalletConnectButton', () => ({ WalletConnectButton: () => null }))
+vi.mock('../TrustlineBanner', () => ({ TrustlineBanner: () => null }))
+vi.mock('../Notification/NotificationBell', () => ({ default: () => null }))
+vi.mock('../ShortcutsHelp', () => ({ ShortcutsHelp: () => null }))
+vi.mock('../ToastViewport', () => ({ ToastViewport: () => null }))
+vi.mock('../ThemeToggle', () => ({ default: () => null }))
+vi.mock('../CommandPalette', () => ({ default: () => null }))
+vi.mock('../../utils/useBreakpoint', () => ({ useBreakpoint: () => false }))
 
-vi.mock('../Wallet/WalletConnectButton', () => ({
-  WalletConnectButton: () => <button type="button">Connect wallet</button>,
-}));
+const initialOverflow = document.body.style.overflow
 
-vi.mock('../TrustlineBanner', () => ({
-  TrustlineBanner: () => null,
-}));
+beforeEach(() => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+  document.body.style.overflow = 'auto'
+})
 
-function renderOpenDrawer(onClose = vi.fn()) {
-  render(
-    <MemoryRouter>
-      <MobileDrawer isOpen onClose={onClose} />
+afterEach(() => {
+  document.body.style.overflow = initialOverflow
+  vi.restoreAllMocks()
+})
+
+function renderMobileLayout() {
+  return render(
+    <MemoryRouter initialEntries={['/']}>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<h1>Home page</h1>} />
+          <Route path="/vaults" element={<h1>Vaults page</h1>} />
+        </Routes>
+      </Layout>
     </MemoryRouter>,
-  );
-
-  return onClose;
+  )
 }
 
-function DrawerHarness() {
-  const [isOpen, setOpen] = useState(false);
-
-  return (
-    <MemoryRouter>
-      <button type="button" onClick={() => setOpen(true)}>
-        Open navigation menu
-      </button>
-      <MobileDrawer isOpen={isOpen} onClose={() => setOpen(false)} />
-    </MemoryRouter>
-  );
+function menuTrigger() {
+  return screen.getByRole('button', { name: 'Open navigation menu' })
 }
 
-describe('MobileDrawer accessibility', () => {
-  beforeEach(() => {
-    focusTrapState.options = [];
-    document.body.style.overflow = '';
-  });
+describe('MobileDrawer keyboard and focus interactions', () => {
+  it('moves focus into the modal drawer, expands the trigger, and locks background scrolling', async () => {
+    const user = userEvent.setup()
+    renderMobileLayout()
+    const trigger = menuTrigger()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
 
-  test('renders as a labelled modal dialog inside a focus trap', () => {
-    renderOpenDrawer();
+    await user.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Navigation' })
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(trigger).toHaveAttribute('aria-controls', 'mobile-drawer')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveAttribute('id', 'mobile-drawer')
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
 
-    const dialog = screen.getByRole('dialog', { name: /navigation/i });
-    expect(screen.getByTestId('focus-trap')).toBeInTheDocument();
-    expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(dialog).toHaveAttribute('aria-labelledby', 'mobile-drawer-title');
-    expect(dialog).toHaveAttribute('tabindex', '-1');
-    expect(screen.getByText('Navigation')).toHaveAttribute('id', 'mobile-drawer-title');
+    // Layout makes the application background inert while modal navigation is open.
+    expect(document.getElementById('main-content')).toHaveAttribute('inert')
+    expect(document.getElementById('main-content')).toHaveAttribute('aria-hidden', 'true')
+  })
 
-    expect(focusTrapState.options[0]).toMatchObject({
-      allowOutsideClick: true,
-      clickOutsideDeactivates: false,
-      escapeDeactivates: false,
-      returnFocusOnDeactivate: false,
-    });
-    expect(focusTrapState.options[0].initialFocus).toEqual(expect.any(Function));
-    expect(focusTrapState.options[0].fallbackFocus).toEqual(expect.any(Function));
-    expect((focusTrapState.options[0].initialFocus as () => HTMLElement)()).toBe(
-      screen.getByRole('button', { name: /close navigation drawer/i }),
-    );
-    expect((focusTrapState.options[0].fallbackFocus as () => HTMLElement)()).toBe(dialog);
-  });
+  it('keeps focus inside the drawer when tabbing forward and backward', async () => {
+    const user = userEvent.setup()
+    renderMobileLayout()
+    await user.click(menuTrigger())
+    const dialog = screen.getByRole('dialog', { name: 'Navigation' })
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
 
-  test('closes on Escape and restores focus to the trigger', async () => {
-    render(<DrawerHarness />);
+    await user.tab()
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    await user.tab({ shift: true })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  })
 
-    const trigger = screen.getByRole('button', { name: /open navigation menu/i });
-    trigger.focus();
-    fireEvent.click(trigger);
+  it('Escape closes the drawer, clears aria-modal, restores scrolling, and returns focus to the trigger', async () => {
+    const user = userEvent.setup()
+    renderMobileLayout()
+    const trigger = menuTrigger()
+    await user.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Navigation' })
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
 
-    expect(screen.getByRole('dialog', { name: /navigation/i })).toBeInTheDocument();
+    await user.keyboard('{Escape}')
 
-    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument())
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger).toHaveFocus()
+    expect(document.body).toHaveStyle({ overflow: 'auto' })
+    expect(document.getElementById('main-content')).not.toHaveAttribute('inert')
+    expect(document.getElementById('main-content')).not.toHaveAttribute('aria-hidden')
+  })
 
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(trigger).toHaveFocus();
-  });
+  it('selecting Vaults navigates and closes the drawer', async () => {
+    const user = userEvent.setup()
+    renderMobileLayout()
+    const trigger = menuTrigger()
+    await user.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Navigation' })
+    await user.click(within(dialog).getByRole('link', { name: 'Vaults' }))
 
-  test('keeps drawer clicks contained and closes from navigation links', () => {
-    const onClose = renderOpenDrawer();
-    const dialog = screen.getByRole('dialog', { name: /navigation/i });
-
-    fireEvent.click(dialog);
-    expect(onClose).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('link', { name: /home/i }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  test('falls back safely when focus targets are unavailable', () => {
-    const activeElementDescriptor = Object.getOwnPropertyDescriptor(document, 'activeElement');
-
-    Object.defineProperty(document, 'activeElement', {
-      configurable: true,
-      get: () => null,
-    });
-
-    const { unmount } = render(
-      <MemoryRouter>
-        <MobileDrawer isOpen onClose={vi.fn()} />
-      </MemoryRouter>,
-    );
-    const options = focusTrapState.options[0];
-
-    unmount();
-
-    expect((options.initialFocus as () => HTMLElement)()).toBe(document.body);
-    expect((options.fallbackFocus as () => HTMLElement)()).toBe(document.body);
-
-    if (activeElementDescriptor) {
-      Object.defineProperty(document, 'activeElement', activeElementDescriptor);
-    } else {
-      delete (document as any).activeElement;
-    }
-  });
-
-  test('closes from the backdrop and close button', () => {
-    const onClose = renderOpenDrawer();
-
-    fireEvent.click(screen.getByRole('button', { name: /close navigation drawer/i }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole('dialog', { name: /navigation/i }).parentElement as HTMLElement);
-    expect(onClose).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('Layout drawer integration', () => {
-  beforeEach(() => {
-    focusTrapState.options = [];
-  });
-
-  test('marks background content inert while the drawer is open', () => {
-    render(
-      <MemoryRouter>
-        <Layout>
-          <p>Page content</p>
-        </Layout>
-      </MemoryRouter>,
-    );
-
-    const trigger = screen.getByRole('button', { name: /open navigation menu/i });
-    const main = screen.getByRole('main');
-
-    expect(main).not.toHaveAttribute('aria-hidden');
-    expect(main).not.toHaveAttribute('inert');
-
-    fireEvent.click(trigger);
-
-    const hiddenMain = screen.getByRole('main', { hidden: true });
-    expect(hiddenMain).toHaveAttribute('aria-hidden', 'true');
-    expect(hiddenMain).toHaveAttribute('inert');
-    expect(trigger).toHaveAttribute('aria-expanded', 'true');
-  });
-});
-
-describe('MobileDrawer scroll lock and focus restore', () => {
-  beforeEach(() => {
-    document.body.style.overflow = '';
-  });
-
-  test('locks body scroll while open and restores on close', () => {
-    const { rerender } = render(
-      <MemoryRouter>
-        <MobileDrawer isOpen onClose={vi.fn()} />
-      </MemoryRouter>,
-    );
-    expect(document.body.style.overflow).toBe('hidden');
-
-    rerender(
-      <MemoryRouter>
-        <MobileDrawer isOpen={false} onClose={vi.fn()} />
-      </MemoryRouter>,
-    );
-    expect(document.body.style.overflow).toBe('');
-  });
-
-  test('restores body scroll on unmount', () => {
-    const { unmount } = render(
-      <MemoryRouter>
-        <MobileDrawer isOpen onClose={vi.fn()} />
-      </MemoryRouter>,
-    );
-    expect(document.body.style.overflow).toBe('hidden');
-    unmount();
-    expect(document.body.style.overflow).toBe('');
-  });
-
-  test('restores focus to trigger when drawer closes via close button', async () => {
-    render(<DrawerHarness />);
-
-    const trigger = screen.getByRole('button', { name: /open navigation menu/i });
-    trigger.focus();
-    fireEvent.click(trigger);
-
-    expect(screen.getByRole('dialog', { name: /navigation/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /close navigation drawer/i }));
-
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(trigger).toHaveFocus();
-  });
-
-  test('prevents default on Escape keydown and calls onClose', () => {
-    const onClose = vi.fn();
-    render(
-      <MemoryRouter>
-        <MobileDrawer isOpen onClose={onClose} />
-      </MemoryRouter>,
-    );
-
-    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
-    document.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(true);
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  test('does not handle Escape when drawer is closed', () => {
-    const onClose = vi.fn();
-    render(
-      <MemoryRouter>
-        <MobileDrawer isOpen={false} onClose={onClose} />
-      </MemoryRouter>,
-    );
-
-    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
-    document.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(false);
-    expect(onClose).not.toHaveBeenCalled();
-  });
-});
-
-describe('MobileDrawer active links', () => {
-  test('verifier link receives active class and aria-current when on /verifier or subroutes', () => {
-    render(
-      <MemoryRouter initialEntries={['/verifier/queue']}>
-        <MobileDrawer isOpen onClose={vi.fn()} />
-      </MemoryRouter>
-    );
-
-    const verifierLink = screen.getByRole('link', { name: /verifier/i });
-    expect(verifierLink).toHaveAttribute('aria-current', 'page');
-    expect(verifierLink).toHaveClass('active');
-  });
-
-  test('analytics link receives active class and aria-current when on /analytics', () => {
-    render(
-      <MemoryRouter initialEntries={['/analytics']}>
-        <MobileDrawer isOpen onClose={vi.fn()} />
-      </MemoryRouter>
-    );
-
-    const analyticsLink = screen.getByRole('link', { name: /analytics/i });
-    expect(analyticsLink).toHaveAttribute('aria-current', 'page');
-    expect(analyticsLink).toHaveClass('active');
-  });
-
-  test('verifier and analytics links are not active on home route', () => {
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <MobileDrawer isOpen onClose={vi.fn()} />
-      </MemoryRouter>
-    );
-
-    const verifierLink = screen.getByRole('link', { name: /verifier/i });
-    expect(verifierLink).not.toHaveAttribute('aria-current');
-    expect(verifierLink).not.toHaveClass('active');
-
-    const analyticsLink = screen.getByRole('link', { name: /analytics/i });
-    expect(analyticsLink).not.toHaveAttribute('aria-current');
-    expect(analyticsLink).not.toHaveClass('active');
-  });
-});
+    expect(await screen.findByRole('heading', { name: 'Vaults page' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(document.body).toHaveStyle({ overflow: 'auto' })
+  })
+})

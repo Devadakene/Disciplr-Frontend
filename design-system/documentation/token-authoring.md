@@ -8,13 +8,16 @@ All tokens must pass the `isKebabCase` and `hasValidTokenPrefix` checks enforced
 
 * **Format:** Tokens must strictly use `kebab-case`.
 * **Prefixes:** Every token must start with a valid category prefix:
+    * `chart-*`
     * `color-*`
     * `font-*`
     * `spacing-*`
+    * `typography-*`
     * `border-*`
     * `shadow-*`
+    * `radius-*`
     * `motion-*`
-    * `chart-*`
+    * `z-index-*`
 
 ## 2. Standard Token Structure
 

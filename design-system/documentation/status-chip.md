@@ -19,6 +19,7 @@ import { StatusChip } from '../components/StatusChip';
 - `status` (`ChipStatus`): The current status. Maps directly to a semantic token and default label.
   - Allowed values: `'active'`, `'pending_validation'`, `'completed'`, `'failed'`, `'cancelled'`, `'approved'`, `'rejected'`.
 - `label` (`string`, optional): An optional override for the default text label.
+- `tooltip` (`string`, optional): Custom tooltip content. When provided, the chip becomes keyboard-focusable to allow users to trigger the tooltip. Without a custom tooltip, the chip uses the default description and is not focusable (reducing unnecessary tab stops on list-heavy pages).
 - `size` (`'sm' | 'md' | 'lg'`, optional): Controls the padding and font size of the chip. Defaults to `'md'`.
 - `className` (`string`, optional): Additional classes to apply to the chip.
 
@@ -35,6 +36,13 @@ The chip uses `color-mix` to automatically generate transparent background color
 | `pending_validation` | Pending Validation | `var(--warning)` | `color-mix(in srgb, var(--warning) 10%, transparent)` |
 | `approved` | Approved | `var(--success)` | `color-mix(in srgb, var(--success) 10%, transparent)` |
 | `rejected` | Rejected | `var(--danger)` | `color-mix(in srgb, var(--danger) 10%, transparent)` |
+
+### Unknown Status Fallback
+
+When an unmapped status value outside `ChipStatus` is passed at runtime:
+- The chip renders as a neutral gray chip using `var(--muted)` and `color-mix(in srgb, var(--muted) 10%, transparent)`.
+- The default label and aria-label display the raw status string (or `'Unknown'` if empty).
+- A warning is emitted via `logger.warn` to make mapping issues immediately visible rather than silently falling back to `'Cancelled'`.
 
 ## Shared status types (`src/types/vault.ts`)
 
@@ -69,7 +77,9 @@ chip can render it.
 
 ## Accessibility
 
-- The component exposes its status using an implicit `role="status"` and includes an accessible `aria-label` covering the underlying meaning, regardless of whether a custom `label` string is passed in or not.
+- The component exposes its status using an accessible `aria-label` covering the underlying meaning, regardless of whether a custom `label` string is passed in or not.
+- **Keyboard focus**: By default, status chips are **not focusable** (no tab stop), reducing bloat on list-heavy pages. The chip becomes keyboard-focusable (`tabIndex={0}`) only when a custom `tooltip` prop is provided, indicating the developer wants to expose additional information that justifies a tab stop.
+- Screen readers can always access the status via the `aria-label`, regardless of focusability.
 - Semantic colors match contrast minimums since the root tokens (`--danger`, `--success`, etc.) have already been vetted, and the background uses a 10% opacity multiplier against white/black.
 
 ---

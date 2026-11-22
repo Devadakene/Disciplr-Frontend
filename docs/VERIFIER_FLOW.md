@@ -438,7 +438,7 @@ sequenceDiagram
 
 ### Recommended: Slice Selection
 
-Components should select only the state slices they need to avoid unnecessary re-renders:
+Components should select only the state slices they need to avoid unnecessary re-renders. See [STORES.md](./STORES.md) for detailed guidance on store consumption patterns.
 
 ```typescript
 // Good: Only re-renders when pendingValidations changes
@@ -447,7 +447,7 @@ const pendingValidations = useVerifierStore((state) => state.pendingValidations)
 // Good: Actions are stable references, never cause re-renders
 const approveValidation = useVerifierStore((state) => state.approveValidation);
 
-// Good: Multiple selections in one hook call
+// Good: Multiple selections in one hook call with explicit selector
 const { pendingValidations, approveValidation } = useVerifierStore((state) => ({
   pendingValidations: state.pendingValidations,
   approveValidation: state.approveValidation,
@@ -455,6 +455,8 @@ const { pendingValidations, approveValidation } = useVerifierStore((state) => ({
 ```
 
 ### Avoid: Full Store Destructuring
+
+Destructuring without a selector function causes the component to re-render on any store change, even if the destructured fields didn't change:
 
 ```typescript
 // ⚠️ Avoid: Re-renders on any store change
@@ -465,23 +467,49 @@ const { pendingValidations, approveValidation } = useVerifierStore();
 
 **VerifierDashboard:**
 ```typescript
-const { pendingValidations, validationHistory } = useVerifierStore();
+// Recommended: Explicit selector
+const { pendingValidations, validationHistory } = useVerifierStore((state) => ({
+  pendingValidations: state.pendingValidations,
+  validationHistory: state.validationHistory,
+}));
+
+// Alternative: Separate selectors for more granular control
+const pendingValidations = useVerifierStore((state) => state.pendingValidations);
+const validationHistory = useVerifierStore((state) => state.validationHistory);
 ```
 
 **PendingValidations:**
 ```typescript
-const { pendingValidations, validationHistory, batchApprove, batchReject } = useVerifierStore();
+// Recommended: Explicit selector
+const { pendingValidations, validationHistory, batchApprove, batchReject } = useVerifierStore(
+  (state) => ({
+    pendingValidations: state.pendingValidations,
+    validationHistory: state.validationHistory,
+    batchApprove: state.batchApprove,
+    batchReject: state.batchReject,
+  })
+);
 ```
 
 **ValidationDetail:**
 ```typescript
-const { pendingValidations, approveValidation, rejectValidation } = useVerifierStore();
+// Recommended: Explicit selector
+const { pendingValidations, approveValidation, rejectValidation } = useVerifierStore(
+  (state) => ({
+    pendingValidations: state.pendingValidations,
+    approveValidation: state.approveValidation,
+    rejectValidation: state.rejectValidation,
+  })
+);
 ```
 
 **ValidationHistory:**
 ```typescript
-const { validationHistory } = useVerifierStore();
+// Recommended: Direct selector for single field
+const validationHistory = useVerifierStore((state) => state.validationHistory);
 ```
+
+> **Note**: Some existing components may still use full store destructuring without selectors. These should be migrated to the selector patterns shown above to prevent unnecessary re-renders. See [STORES.md](./STORES.md) for detailed explanation of why selector-based consumption is preferred.
 
 ---
 

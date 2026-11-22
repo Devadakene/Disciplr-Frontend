@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useReducedMotion } from 'framer-motion';
 import { ShortcutsHelp } from '../ShortcutsHelp';
 import { SHORTCUTS } from '@/utils/shortcuts';
+import { registerShortcut } from '@/utils/shortcutRegistry';
 
 vi.mock('framer-motion', async (importOriginal) => {
   const original = await importOriginal<typeof import('framer-motion')>();
@@ -115,7 +116,12 @@ describe('ShortcutsHelp', () => {
   it('closes when the backdrop overlay is clicked', () => {
     render(<ShortcutsHelp />);
     fireEvent.keyDown(document, { key: '?' });
-    fireEvent.click(screen.getByRole('dialog'));
+    // Modal stops propagation on clicks inside the dialog content itself, so
+    // the backdrop (the dialog's containing overlay element) must be
+    // targeted directly to trigger the close-on-outside-click behavior.
+    const backdrop = screen.getByRole('dialog').parentElement;
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop!);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -190,6 +196,22 @@ describe('ShortcutsHelp', () => {
     render(<ShortcutsHelp />);
     fireEvent.keyDown(document, { key: '?' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('dynamically renders newly registered shortcuts from the registry', () => {
+    const unregister = registerShortcut({
+      keys: 'g q',
+      description: 'Go to verifier queue',
+      handler: vi.fn(),
+    });
+
+    render(<ShortcutsHelp />);
+    fireEvent.keyDown(document, { key: '?' });
+
+    expect(screen.getByText('g q')).toBeInTheDocument();
+    expect(screen.getByText('Go to verifier queue')).toBeInTheDocument();
+
+    unregister();
   });
 
   it('removes the keydown listener on unmount', () => {

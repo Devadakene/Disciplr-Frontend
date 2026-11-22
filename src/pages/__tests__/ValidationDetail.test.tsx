@@ -49,14 +49,20 @@ const mockPendingWithCriteria = [
 describe('ValidationDetail Page', () => {
   const mockApproveValidation = vi.fn();
   const mockRejectValidation = vi.fn();
-  const mockUseVerifierStore = useVerifierStore as unknown as Mock;
+
+  /** Apply the selector-based mock for useVerifierStore. */
+  function mockStore(state: Record<string, unknown>) {
+    vi.mocked(useVerifierStore).mockImplementation(
+      (selector: (s: unknown) => unknown) => selector(state),
+    );
+  }
 
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
     mockVaultId = 'v-101';
     window.localStorage.clear();
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: mockPendingValidations,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -72,12 +78,13 @@ describe('ValidationDetail Page', () => {
 
     expect(screen.getByText('Review Milestone')).toBeInTheDocument();
     expect(screen.getByText('Task ID: v-101')).toBeInTheDocument();
-    expect(screen.getByText('Test Vault')).toBeInTheDocument();
+    // Vault name legitimately appears twice (breadcrumb + Vault Summary card).
+    expect(screen.getAllByText('Test Vault').length).toBeGreaterThan(0);
     expect(screen.getByText('Test Milestone')).toBeInTheDocument();
   });
 
   it('shows "Validation Not Found" if task does not exist', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: [],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -287,7 +294,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('restores a verifier notes draft for the current task', () => {
-    window.localStorage.setItem('validation-notes-draft:v-101', 'Saved review notes');
+    window.localStorage.setItem(getNotesDraftKey('v-101'), 'Saved review notes');
 
     render(
       <MemoryRouter initialEntries={['/verifier/v-101']}>
@@ -311,17 +318,17 @@ describe('ValidationDetail Page', () => {
       target: { value: 'Draft saved after debounce' },
     });
 
-    expect(window.localStorage.getItem('validation-notes-draft:v-101')).toBeNull();
+    expect(window.localStorage.getItem(getNotesDraftKey('v-101'))).toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(300);
     });
 
-    expect(window.localStorage.getItem('validation-notes-draft:v-101')).toBe('Draft saved after debounce');
+    expect(window.localStorage.getItem(getNotesDraftKey('v-101'))).toBe('Draft saved after debounce');
   });
 
   it('clears a restored verifier notes draft after approval', () => {
-    window.localStorage.setItem('validation-notes-draft:v-101', 'Ready to approve');
+    window.localStorage.setItem(getNotesDraftKey('v-101'), 'Ready to approve');
 
     render(
       <MemoryRouter initialEntries={['/verifier/v-101']}>
@@ -333,11 +340,11 @@ describe('ValidationDetail Page', () => {
     fireEvent.click(screen.getByRole('button', { name: /Confirm Approve/i }));
 
     expect(mockApproveValidation).toHaveBeenCalledWith('v-101', 'Ready to approve');
-    expect(window.localStorage.getItem('validation-notes-draft:v-101')).toBeNull();
+    expect(window.localStorage.getItem(getNotesDraftKey('v-101'))).toBeNull();
   });
 
   it('renders "No evidence link provided" when task has no evidenceUrl', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: [{ ...mockPendingValidations[0], evidenceUrl: undefined }],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -353,7 +360,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('renders evidence preview card with GitHub badge for GitHub URLs', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: [{ ...mockPendingValidations[0], evidenceUrl: 'https://github.com/user/repo' }],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -369,8 +376,8 @@ describe('ValidationDetail Page', () => {
     expect(screen.getByText('github.com')).toBeInTheDocument();
   });
 
-  it('renders evidence preview card with Figma badge for Figma URLs', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+  it('renders evidence preview card with Figma badge and actual hostname for Figma URLs', () => {
+    mockStore({
       pendingValidations: [{ ...mockPendingValidations[0], evidenceUrl: 'https://www.figma.com/file/abc123' }],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -383,11 +390,67 @@ describe('ValidationDetail Page', () => {
     );
 
     expect(screen.getByText('Figma')).toBeInTheDocument();
-    expect(screen.getByText('figma.com')).toBeInTheDocument();
+    expect(screen.getByText('www.figma.com')).toBeInTheDocument();
+  });
+
+  it('renders evidence preview card with GitHub badge and actual subdomain host for gist.github.com', () => {
+    mockStore({
+      pendingValidations: [{ ...mockPendingValidations[0], evidenceUrl: 'https://gist.github.com/user/12345' }],
+      approveValidation: mockApproveValidation,
+      rejectValidation: mockRejectValidation,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/verifier/v-101']}>
+        <ValidationDetail />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('GitHub')).toBeInTheDocument();
+    expect(screen.getByText('gist.github.com')).toBeInTheDocument();
+  });
+
+  it('renders Other badge and real hostname for look-alike and punycode hosts', () => {
+    mockStore({
+      pendingValidations: [
+        { ...mockPendingValidations[0], evidenceUrl: 'https://github.com.evil.io/pull/42' },
+      ],
+      approveValidation: mockApproveValidation,
+      rejectValidation: mockRejectValidation,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/verifier/v-101']}>
+        <ValidationDetail />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('evidence-kind-badge')).toHaveTextContent('Other');
+    expect(screen.queryByText('GitHub')).not.toBeInTheDocument();
+    expect(screen.getByTestId('evidence-host')).toHaveTextContent('github.com.evil.io');
+  });
+
+  it('does not render an IPFS badge above [Invalid Link] for ipfs:// scheme URLs', () => {
+    mockStore({
+      pendingValidations: [
+        { ...mockPendingValidations[0], evidenceUrl: 'ipfs://QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco' },
+      ],
+      approveValidation: mockApproveValidation,
+      rejectValidation: mockRejectValidation,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/verifier/v-101']}>
+        <ValidationDetail />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByText('IPFS')).not.toBeInTheDocument();
+    expect(screen.getByText('[Invalid Link]')).toBeInTheDocument();
   });
 
   it('renders evidence preview card with IPFS badge for IPFS URLs', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: [{ ...mockPendingValidations[0], evidenceUrl: 'https://ipfs.io/ipfs/QmXoyp' }],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -404,7 +467,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('renders evidence preview card with Other badge for other URLs', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: [{ ...mockPendingValidations[0], evidenceUrl: 'https://example.com' }],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -421,7 +484,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('still renders SafeLink even for invalid URLs', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: [{ ...mockPendingValidations[0], evidenceUrl: 'not-a-valid-url' }],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -470,7 +533,7 @@ describe('ValidationDetail Page', () => {
   // --- Criteria gate tests ---
 
   it('renders criteria checkboxes when task has criteria', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: mockPendingWithCriteria,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -488,7 +551,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('approve button is disabled when criteria are present but unchecked', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: mockPendingWithCriteria,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -504,7 +567,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('approve button remains disabled when only some criteria are checked', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: mockPendingWithCriteria,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -522,7 +585,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('approve button is enabled when all criteria are checked', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: mockPendingWithCriteria,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -541,7 +604,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('reject button is always enabled regardless of criteria', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: mockPendingWithCriteria,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -558,7 +621,7 @@ describe('ValidationDetail Page', () => {
   });
 
   it('unchecking a criterion re-disables the approve button', () => {
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: mockPendingWithCriteria,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -604,7 +667,7 @@ describe('ValidationDetail Page', () => {
       },
     ];
 
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: pendingWithTwoTasks,
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -643,7 +706,7 @@ describe('ValidationDetail Page', () => {
   it('retains checked state per criterion text when criteria are reordered', () => {
     const reorderedCriteria = ['Criterion B', 'Criterion A'];
 
-    vi.mocked(useVerifierStore).mockReturnValue({
+    mockStore({
       pendingValidations: [{ ...mockPendingWithCriteria[0], criteria: reorderedCriteria }],
       approveValidation: mockApproveValidation,
       rejectValidation: mockRejectValidation,
@@ -670,5 +733,207 @@ describe('ValidationDetail Page', () => {
     // Check both
     fireEvent.click(screen.getByLabelText('Criterion B'));
     expect(screen.getByRole('button', { name: /Approve Milestone/i })).not.toBeDisabled();
+  });
+
+  describe('Failure Path & Boundary Coverage', () => {
+    it('handles undefined or null pendingValidations store state gracefully', () => {
+      mockStore({
+        pendingValidations: undefined,
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Validation Not Found')).toBeInTheDocument();
+    });
+
+    it('handles whitespace-only or empty vaultId by showing Validation Not Found', () => {
+      mockVaultId = '   ';
+      render(
+        <MemoryRouter initialEntries={['/verifier/   ']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Validation Not Found')).toBeInTheDocument();
+    });
+
+    it('handles invalid deadline date string without throwing NaN', () => {
+      mockStore({
+        pendingValidations: [{ ...mockPendingValidations[0], deadline: 'invalid-date' }],
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Deadline: 0 days remaining')).toBeInTheDocument();
+    });
+
+    it('deduplicates duplicate criteria strings and enables approval when all unique criteria are checked', () => {
+      mockStore({
+        pendingValidations: [
+          {
+            ...mockPendingValidations[0],
+            criteria: ['Criterion A', 'Criterion A', 'Criterion B', '   '],
+          },
+        ],
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      // Should render unique non-empty criteria
+      const criterionACheckboxes = screen.getAllByLabelText('Criterion A');
+      expect(criterionACheckboxes.length).toBe(1);
+
+      expect(screen.getByRole('button', { name: /Approve Milestone/i })).toBeDisabled();
+
+      fireEvent.click(screen.getByLabelText('Criterion A'));
+      fireEvent.click(screen.getByLabelText('Criterion B'));
+
+      expect(screen.getByRole('button', { name: /Approve Milestone/i })).not.toBeDisabled();
+    });
+
+    it('prevents approval when criteria gate is closed even if approval action is triggered', () => {
+      mockStore({
+        pendingValidations: mockPendingWithCriteria,
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      // Trigger reject modal to get modal open, then switch decision to approve
+      fireEvent.click(screen.getByText('Reject Milestone'));
+      const modal = screen.getByRole('dialog');
+      const approveBtnInModal = within(modal).getByRole('button', { name: /Approve/i });
+      fireEvent.click(approveBtnInModal);
+
+      const confirmBtn = screen.getByRole('button', { name: /Confirm Approve/i });
+      fireEvent.click(confirmBtn);
+
+      expect(mockApproveValidation).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(/milestone criteria gate is not open|all criteria must be completed/i);
+    });
+
+    it('displays error alert and recovers gracefully when approveValidation throws an error', async () => {
+      const failingApprove = vi.fn().mockImplementation(() => {
+        throw new Error('On-chain RPC connection failed');
+      });
+
+      mockStore({
+        pendingValidations: mockPendingValidations,
+        approveValidation: failingApprove,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      fireEvent.click(screen.getByText('Approve Milestone'));
+      fireEvent.click(screen.getByRole('button', { name: /Confirm Approve/i }));
+
+      expect(failingApprove).toHaveBeenCalledWith('v-101', '');
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('On-chain RPC connection failed');
+
+      // Dismiss error
+      fireEvent.click(screen.getByRole('button', { name: /Dismiss error/i }));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('handles async rejection failure and retains notes draft for retry', async () => {
+      let rejectPromiseReject: (reason?: unknown) => void;
+      const failingAsyncReject = vi.fn().mockImplementation(() => {
+        return new Promise((_, reject) => {
+          rejectPromiseReject = reject;
+        });
+      });
+
+      mockStore({
+        pendingValidations: mockPendingValidations,
+        approveValidation: mockApproveValidation,
+        rejectValidation: failingAsyncReject,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      const notesInput = screen.getByPlaceholderText(/Start adding your review notes here/i);
+      fireEvent.change(notesInput, { target: { value: 'Incomplete proof details.' } });
+
+      fireEvent.click(screen.getByText('Reject Milestone'));
+      fireEvent.click(screen.getByRole('button', { name: /Confirm Reject/i }));
+
+      await act(async () => {
+        rejectPromiseReject!(new Error('Network request timed out'));
+      });
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('Network request timed out');
+      expect(notesInput).toHaveValue('Incomplete proof details.');
+    });
+
+    it('prevents concurrent double-submission during in-flight action', async () => {
+      let resolveAction: (val: unknown) => void;
+      const slowAction = vi.fn().mockImplementation(() => {
+        return new Promise((resolve) => {
+          resolveAction = resolve;
+        });
+      });
+
+      mockStore({
+        pendingValidations: mockPendingValidations,
+        approveValidation: slowAction,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      fireEvent.click(screen.getByText('Approve Milestone'));
+      const confirmBtn = screen.getByRole('button', { name: /Confirm Approve/i });
+
+      // Click once
+      fireEvent.click(confirmBtn);
+      // Click again while in-flight
+      fireEvent.click(confirmBtn);
+
+      expect(slowAction).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveAction!(true);
+      });
+    });
   });
 });

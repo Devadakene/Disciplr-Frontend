@@ -12,11 +12,12 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: './src/setupTests.ts',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/__tests__/**/*.test.ts'],
     // Pure TS util tests run in node; TSX component tests use jsdom for RTL/DOM.
     environmentMatchGlobs: [
       ['src/**/*.test.tsx', 'jsdom'],
       ['src/**/*.test.ts', 'node'],
+      ['scripts/**/*.test.ts', 'node'],
     ],
     coverage: {
       reporter: ['text', 'html', 'json-summary'],

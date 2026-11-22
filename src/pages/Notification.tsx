@@ -1,19 +1,23 @@
 import Message from "@/components/Notification/Messages";
 import { groupNotificationsByDate } from "../utils/groupNotifications";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { transitionEnter } from "../utils/motion";
 import { useNotification } from "@/Zustand/Store";
 import { MdOutlineSettingsInputComposite } from "react-icons/md";
+import { X } from "lucide-react";
 import { Link } from "react-router-dom";
-import { usePrefersReducedMotion } from "../utils/usePrefersReducedMotion"; // <-- Import the hook
+import { usePrefersReducedMotion } from "../utils/usePrefersReducedMotion";
+import { Pagination } from "@/components/Pagination";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
+import { paginate } from "@/utils/paginate";
+import type { NotificationItem } from "@/Zustand/Store";
 
 export default function Notification() {
   const notifications = useNotification((state) => state.notification);
   const setNotifications = useNotification((state) => state.setNotification);
   const dismiss = useNotification((state) => state.dismiss);
   const clearAll = useNotification((state) => state.clearAll);
-  const [currentNotification, setCurrentNotification] = useState(notifications);
   const [currentFilterReadSeletion, setCurrentFilterReadSeletion] = useState("all");
   const [currentFilterTypeSeletion, setCurrentFilterTypeSeletion] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -21,6 +25,7 @@ export default function Notification() {
   const [isPreferenceOpen, setIsPreferenceOpen] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const itemsPerPage = 5;
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const prefersReducedMotion = usePrefersReducedMotion(); // <-- Consume the preference status
 
@@ -29,13 +34,44 @@ export default function Notification() {
     ? { duration: 0 } 
     : transitionEnter;
 
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentData = currentNotification.slice(
-    startIndex,
-    startIndex + itemsPerPage,
-  );
+  const filteredNotifications = useMemo(() => {
+    let filtered = notifications;
+    if (!filtered) return [];
+    if (!Array.isArray(filtered)) return [];
+
+    if (currentFilterReadSeletion !== "all") {
+      filtered = filtered.filter(
+        (noti) => noti.isRead === Boolean(Number(currentFilterReadSeletion)),
+      );
+    }
+
+    if (currentFilterTypeSeletion !== "all") {
+      filtered = filtered.filter(
+        (noti) => noti.category === currentFilterTypeSeletion,
+      );
+    }
+
+    return filtered;
+  }, [notifications, currentFilterReadSeletion, currentFilterTypeSeletion]);
+
+  const pagination = paginate(filteredNotifications, currentPage, itemsPerPage);
+  const currentData = pagination.items;
+
+  // Invariant: currentPage must always be within [1, pagination.totalPages].
+  // If filters or data shrink the result set, clamp the page to avoid
+  // rendering an empty page while valid items exist on earlier pages.
+  useEffect(() => {
+    const totalPages = Math.max(1, pagination.pageCount ?? 1);
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    } else if (currentPage < 1) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, pagination.pageCount]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const filterButtonRef = useRef<HTMLButtonElement | null>(null);
+  const filterPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -72,6 +108,7 @@ export default function Notification() {
     };
 
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
@@ -79,51 +116,82 @@ export default function Notification() {
   }, []);
 
   useEffect(() => {
-    let filtered = notifications;
-    if (!filtered) return;
-
-    if (currentFilterReadSeletion !== "all") {
-      filtered = filtered.filter(
-        (noti) => noti.isRead === Boolean(Number(currentFilterReadSeletion)),
-      );
-    }
-
-    if (currentFilterTypeSeletion !== "all") {
-      filtered = filtered.filter(
-        (noti) => noti.category === currentFilterTypeSeletion,
-      );
-    }
-    setCurrentNotification(filtered);
     setCurrentPage(1);
-  };
-
-  useEffect(() => {
-    filterNotification();
   }, [currentFilterReadSeletion, currentFilterTypeSeletion, notifications]);
 
-  const totalPages = Math.ceil(currentNotification.length / itemsPerPage);
-  
+  // Invariant: setRead must be idempotent and must not mutate unrelated
+  // notifications. It must also tolerate stale ids (already dismissed).
   const setRead = (id: string) => {
-    setNotifications(
-      notifications.map((n) =>
-        n.id === id ? { ...n, isRead: true } : n,
-      ),
-    );
-    setCurrentNotification((prev) =>
-      prev.map((n) =>
-        n.id === id ? { ...n, isRead: true } : n,
-      ),
-    );
+    if (typeof id !== "string" || id.length === 0) return;
+    const current = useNotification.getState().notification;
+    if (!Array.isArray(current)) return;
+    const target = current.find((n) => n.id === id);
+    if (!target || target.isRead) return;
+    try {
+      setNotifications(
+        current.map((n) =>
+          n.id === id ? { ...n, isRead: true } : n,
+        ),
+      );
+      setActionError(null);
+    } catch (err) {
+      setActionError("Unable to mark notification as read. Please retry.");
+    }
   };
+
+  // Invariant: dismiss must be idempotent and tolerate unknown ids.
+  const handleDismiss = (id: string) => {
+    if (typeof id !== "string" || id.length === 0) return;
+    const current = useNotification.getState().notification;
+    if (!Array.isArray(current)) return;
+    if (!current.some((n) => n.id === id)) return;
+    try {
+      dismiss(id);
+      setActionError(null);
+    } catch (err) {
+      setActionError("Unable to dismiss notification. Please retry.");
+    }
+  };
+
+  const handleClearAll = () => {
+    try {
+      clearAll();
+      setActionError(null);
+    } catch (err) {
+      setActionError("Unable to clear notifications. Please retry.");
+    } finally {
+      setShowClearModal(false);
+    }
+  };
+
+  const statusLabel =
+    currentFilterReadSeletion === "all"
+      ? "all"
+      : currentFilterReadSeletion === "0"
+        ? "unread"
+        : "read";
+  const categoryLabel =
+    currentFilterTypeSeletion === "all" ? "all categories" : currentFilterTypeSeletion;
+  const resultCount = filteredNotifications.length;
+  const countText =
+    resultCount === 0
+      ? "No notifications found"
+      : `Showing ${resultCount === 1 ? "1 notification" : `${resultCount} notifications`}`;
+  const liveAnnouncement = `${countText}. Active filters: status ${statusLabel}, category ${categoryLabel}.`;
 
   return (
     <>
+      {actionError && (
+        <div role="alert" className="text-sm text-red-600 mb-2">
+          {actionError}
+        </div>
+      )}
       <div ref={containerRef} className="flex justify-between items-center">
         <div className="text-xl font-bold">Notification Page </div>
         <div className="flex gap-5 items-center justify-center">
           <div className="relative">
             <Link
-              to="/notification/settings"
+              to="/notifications/settings"
               aria-label="Notification Preferences"
               style={{
                 padding: "0.5rem 1rem",
@@ -156,6 +224,7 @@ export default function Notification() {
             <AnimatePresence>
               {isFilterOpen && (
                 <motion.div
+                  ref={filterPanelRef}
                   initial={prefersReducedMotion ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: -10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={prefersReducedMotion ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: -10, scale: 0.95 }}
@@ -211,7 +280,7 @@ export default function Notification() {
       <div className="flex w-full flex-col gap-5 mt-5">
         {currentData.length > 0 ? (() => {
           const groups = groupNotificationsByDate(currentData);
-          return groups.map((group) => (
+          return groups.map((group: { bucket: string; items: NotificationItem[] }) => (
             <div key={group.bucket}>
               <div
                 className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 mt-1"
@@ -219,7 +288,7 @@ export default function Notification() {
               >
                 {group.bucket}
               </div>
-              {group.items.map((items) => (
+              {group.items.map((items: NotificationItem) => (
                 <div
                   key={items.id}
                   className="w-full px-2 border-[var(--accent)] border-1 rounded-md mb-3"
@@ -230,11 +299,12 @@ export default function Notification() {
                         id={items.id}
                         title={items.title}
                         message={items.message}
-                        timeAgo={items.timeAgo}
+                        timestamp={items.timestamp}
                         type={items.type}
                         read={items.isRead}
                         isFullPage={true}
                         setRead={setRead}
+                        onDismiss={handleDismiss}
                       />
                     </div>
                     <button
@@ -259,6 +329,7 @@ export default function Notification() {
         onPageChange={setCurrentPage}
         ariaLabel="Notifications pagination"
         className="mt-8"
+        showJumpToPage
       />
 
       <ConfirmationModal

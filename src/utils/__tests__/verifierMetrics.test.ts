@@ -47,8 +47,30 @@ describe('computeVerifierMetrics', () => {
 
     expect(metrics.pendingCount).toBe(3);
     expect(metrics.overdueCount).toBe(1);
+    expect(metrics.criticalCount).toBe(1);
+    expect(metrics.urgentCount).toBe(1);
+  });
+
+  it('does not count overdue tasks as urgent (mutual exclusivity)', () => {
+    const now = new Date('2026-06-01T00:00:00Z').getTime();
+    const metrics = computeVerifierMetrics(
+      [
+        task({ id: 'overdue-past', deadline: '2026-05-28' }),
+        task({ id: 'overdue-today', deadline: '2026-06-01' }),
+        task({ id: 'urgent-1d', deadline: '2026-06-02' }),
+        task({ id: 'urgent-3d', deadline: '2026-06-04' }),
+        task({ id: 'ok', deadline: '2026-06-10' }),
+      ],
+      [],
+      now,
+    );
+
+    expect(metrics.overdueCount).toBe(2);
     expect(metrics.criticalCount).toBe(2);
     expect(metrics.urgentCount).toBe(2);
+    expect(metrics.overdueCount + metrics.urgentCount).toBeLessThanOrEqual(
+      metrics.pendingCount,
+    );
   });
 
   it('computes approval rate from decided history only', () => {

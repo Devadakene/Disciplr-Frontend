@@ -1,177 +1,61 @@
 # Visual Regression Targets — Disciplr Frontend
 
-**Purpose:** Define the canonical snapshot set for automated (Percy/Chromatic) and manual visual regression testing.  
+**Purpose:** Define the canonical snapshot set for automated (self-hosted Playwright) and manual visual regression testing.  
 **Branch:** `design/qa-checklist-visual-regression`  
 **Related:** `design/qa/DESIGN_QA_CHECKLIST.md`, `design/qa/RELEASE_GATE.md`
 
 ---
 
-## Tool recommendation
+## Automated approach: self-hosted Playwright (no SaaS)
 
-| Option | Best for | Cost |
-|---|---|---|
-| **Percy** (BrowserStack) | CI-integrated, per-diff pricing, good Vite support | Free tier: 5 000 snapshots/mo |
-| **Chromatic** (Storybook) | Component-level isolation, Storybook-native | Free tier: 5 000 snapshots/mo |
-| **Manual screenshots** | No CI budget, quick audits | Free |
+Visual regression is implemented with `@playwright/test` and Playwright's built-in `toHaveScreenshot`. No Percy/Chromatic account or token is required.
 
-**Recommendation for Disciplr:** Start with Percy for page-level snapshots (no Storybook required). Add Chromatic later when a component library is formalized.
+- Config: `playwright.visual.config.ts`; specs and fixtures: `e2e/visual/`; baselines: `e2e/visual/__screenshots__/` (PNG only, Linux-generated).
+- Projects: `chromium-1440-light`, `chromium-1440-dark`, `chromium-390-light`, `chromium-390-dark` (390x844, `isMobile`).
+- The app is built with `vite build --mode visual` (VITE_API unset, so it runs on offline fixtures) and served by `vite preview` on port 4173. The `visual` mode also enables a test-only `/__visual__/crash` route used to snapshot the ErrorBoundary fallback.
+- Threshold: `maxDiffPixelRatio: 0.01`, `animations: 'disabled'`.
+
+### Routes covered
+
+`/`, `/dashboard`, `/vaults`, `/vaults/1`, `/vaults/create` (empty and validation errors), `/verifier/queue`, `/verifier/history`, `/analytics`, `/help`, `/notifications/settings`, a 404, and the error-boundary fallback. Protected routes use the built-in demo account.
+
+### Determinism
+
+Frozen clock (`2026-01-15T10:00:00Z`), theme forced via `localStorage['disciplr-theme']`, `prefers-reduced-motion: reduce`, animations/transitions disabled, web fonts blocked, and a network guard that fails any test whose page requests anything outside `http://localhost:4173`. No masks are used.
+
+### Commands
+
+```bash
+npx playwright install --with-deps chromium
+npm run test:visual          # compare against baselines
+npm run test:visual:update   # regenerate baselines
+```
+
+Baselines must be generated in the pinned Linux image (fonts differ per OS). On macOS/Windows:
+
+```bash
+docker run --rm -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v1.49.1-jammy \
+  bash -c "corepack enable && pnpm install --frozen-lockfile && pnpm run test:visual:update"
+```
+
+Alternatively, run the **Visual Regression** workflow manually (`workflow_dispatch`, `update: true`) and download the `visual-baselines` artefact.
+
+### CI
+
+`.github/workflows/visual.yml` runs on PRs that touch `src/**`, `design-system/**` or `index.html` (plus the visual suite files) and uploads `test-results/visual/` and `playwright-report/` on failure. Docs-only PRs do not trigger it.
+
+### Baseline management
+
+1. A reviewer must inspect every changed PNG in the PR diff; never regenerate baselines to silence an unexplained failure.
+2. Update baselines only after a design-approved change, using the Docker command above, and commit the PNGs with the change.
 
 ---
 
-## Option A — Percy (page-level, recommended)
+## Manual / legacy notes
 
-### 1. Install
-
-```bash
-npm install --save-dev @percy/cli @percy/playwright
-# or, if using Cypress:
-npm install --save-dev @percy/cli @percy/cypress
-```
-
-### 2. Set Percy token
-
-```bash
-# .env.local (never commit)
-PERCY_TOKEN=your_percy_project_token
-```
-
-Add to CI secrets (GitHub Actions: `Settings → Secrets → PERCY_TOKEN`).
-
-### 3. GitHub Actions workflow
-
-Create `.github/workflows/visual-regression.yml`:
-
-```yaml
-name: Visual Regression
-
-on:
-  pull_request:
-    paths:
-      - 'src/**'
-      - 'design-system/**'
-      - 'index.css'
-
-jobs:
-  percy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Percy snapshot
-        run: npx percy snapshot ./dist --base-url /
-        env:
-          PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
-```
-
-> For dynamic pages (auth-gated, data-driven), use Percy with Playwright to navigate and snapshot each route. See Option A-2 below.
-
-### 4. Percy + Playwright script (dynamic pages)
-
-Create `tests/visual/snapshots.ts`:
-
-```typescript
-import { test } from '@playwright/test';
-import { percySnapshot } from '@percy/playwright';
-
-const VIEWPORTS = [
-  { name: 'mobile', width: 375, height: 812 },
-  { name: 'tablet', width: 768, height: 1024 },
-  { name: 'desktop', width: 1280, height: 800 },
-];
-
-const ROUTES = [
-  { path: '/',                          name: 'Home' },
-  { path: '/vaults',                    name: 'Vaults' },
-  { path: '/vaults/create',             name: 'CreateVault' },
-  { path: '/dashboard',                 name: 'Dashboard' },
-  { path: '/vaults/1',                  name: 'VaultDetail' },
-  { path: '/vaults/1/transactions',     name: 'VaultTransactions' },
-  { path: '/notifications',             name: 'Notifications' },
-  { path: '/notifications/settings',    name: 'NotificationSettings' },
-];
-
-for (const viewport of VIEWPORTS) {
-  test.describe(`${viewport.name} (${viewport.width}px)`, () => {
-    test.use({ viewport: { width: viewport.width, height: viewport.height } });
-
-    for (const route of ROUTES) {
-      test(`${route.name}`, async ({ page }) => {
-        await page.goto(route.path);
-        await page.waitForLoadState('networkidle');
-        await percySnapshot(page, `${route.name} — ${viewport.name}`);
-      });
-    }
-
-    // Modal states
-    test('CreateVault — validation errors', async ({ page }) => {
-      await page.goto('/vaults/create');
-      await page.click('button[type="submit"]');
-      await percySnapshot(page, `CreateVault validation errors — ${viewport.name}`);
-    });
-  });
-}
-
-// Theme variants
-test.describe('Dark theme', () => {
-  test.use({ colorScheme: 'dark' });
-  for (const route of ROUTES) {
-    test(route.name, async ({ page }) => {
-      await page.goto(route.path);
-      await page.waitForLoadState('networkidle');
-      await percySnapshot(page, `${route.name} — dark — desktop`);
-    });
-  }
-});
-```
+The tables below remain useful for manual audits when automated tooling is unavailable.
 
 ---
-
-## Option B — Chromatic (component-level)
-
-### 1. Prerequisites
-
-Chromatic requires Storybook. If Storybook is not yet set up:
-
-```bash
-npx storybook@latest init --type react_vite
-npm install --save-dev chromatic
-```
-
-### 2. Publish to Chromatic
-
-```bash
-npx chromatic --project-token=your_chromatic_token
-```
-
-### 3. GitHub Actions
-
-```yaml
-- name: Publish to Chromatic
-  uses: chromaui/action@latest
-  with:
-    projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-    exitZeroOnChanges: true   # don't fail CI; let reviewers approve
-```
-
-### 4. Stories to create (priority order)
-
-| Story | Variants |
-|---|---|
-| `VaultCard` | active, completed, failed, cancelled, pending_validation |
-| `StatusBadge` | all 5 statuses × light/dark |
-| `Button` | primary, secondary, destructive × default/hover/focus/disabled |
-| `FormInput` | default, focused, error, disabled |
-| `Modal` | open state with title + body + actions |
-| `NotificationItem` | unread, read |
-| `ThemeToggle` | light, dark |
-
----
-
 ## Manual Snapshot List
 
 Use this list when automated tooling is not available. Capture screenshots with browser DevTools at the specified viewport. Store in `design/qa/screenshots/YYYY-MM-DD/`.
@@ -229,16 +113,6 @@ Example: `Vaults_light_375_default.png`
 | 29 | Create Vault submit button (focused) | Tab to button |
 | 30 | Modal close button (focused) | Open modal, Tab to × |
 | 31 | Nav link (focused) | Tab to first nav item |
-
----
-
-## Baseline management
-
-1. On the first run, all snapshots become the **baseline**.
-2. On subsequent PRs, Percy/Chromatic diffs against the baseline.
-3. A reviewer must **approve** visual diffs before merging — do not auto-approve.
-4. Update the baseline intentionally after a design-approved change by accepting diffs in the Percy/Chromatic UI.
-5. Tag baseline snapshots with the release version in Percy project settings.
 
 ---
 

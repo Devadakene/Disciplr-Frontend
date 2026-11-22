@@ -56,9 +56,32 @@ current-step behavior.
 - The empty state uses `aria-live="polite"` so late-loaded vault data can be
   announced without interrupting the user.
 
+## Bounds and Invariants
+
+The component enforces explicit rendering bounds to keep DOM and layout cost
+bounded even for adversarial inputs:
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `MAX_MILESTONES_RENDERED` | 50 | Caps the number of milestone rows rendered. |
+| `MAX_TITLE_LENGTH` | 200 | Truncates over-long milestone titles. |
+| `MAX_DESCRIPTION_LENGTH` | 500 | Truncates over-long descriptions. |
+| `MAX_CRITERIA_LENGTH` | 500 | Truncates over-long criteria text. |
+| `MAX_EVIDENCE_URL_LENGTH` | 2048 | Bounds the URL passed to `SafeLink`. |
+
+State invariants are validated and logged via the shared `logger`:
+
+- A `validated` milestone must carry a `validatedAt` timestamp.
+- A `pending` or `failed` milestone must NOT carry a `validatedAt` timestamp.
+- Text fields are truncated to the bounds above; truncation is logged.
+
+When more than `MAX_MILESTONES_RENDERED` milestones are supplied, a truncation
+notice is rendered and a structured warning is emitted.
+
 ## Tests
 
 Component coverage lives in
 `src/components/__tests__/MilestoneTracker.test.tsx` and verifies status
-rendering, current-step exposure, empty-state handling, evidence links, and
-single-milestone behavior.
+rendering, current-step exposure, empty-state handling, evidence links,
+single-milestone behavior, rendering bounds, text truncation, and invariant
+diagnostics.

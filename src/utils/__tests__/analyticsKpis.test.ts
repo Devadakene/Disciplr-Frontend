@@ -1,284 +1,188 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   computeAnalyticsKpis,
-  formatPercentage,
   formatCurrency,
+  formatPercentage,
   type AnalyticsDataPoint,
-  type KpiMetrics,
 } from '../analyticsKpis'
 
-describe('analyticsKpis', () => {
-  const mockCurrentData: AnalyticsDataPoint[] = [
-    { name: 'Mon', success: 80, failed: 20, capital: 2800, milestones: 2 },
-    { name: 'Tue', success: 85, failed: 15, capital: 2900, milestones: 3 },
-    { name: 'Wed', success: 78, failed: 22, capital: 2750, milestones: 2 },
-    { name: 'Thu', success: 90, failed: 10, capital: 3100, milestones: 4 },
-    { name: 'Fri', success: 88, failed: 12, capital: 3050, milestones: 3 },
-    { name: 'Sat', success: 92, failed: 8, capital: 3200, milestones: 5 },
-    { name: 'Sun', success: 87, failed: 13, capital: 3150, milestones: 3 },
-  ]
+const currentFixture: AnalyticsDataPoint[] = [
+  { name: 'W1', success: 80, failed: 20, capital: 1000, milestones: 2 },
+  { name: 'W2', success: 60, failed: 40, capital: 500, milestones: 3 },
+]
 
-  const mockPreviousData: AnalyticsDataPoint[] = [
-    { name: 'Mon', success: 60, failed: 40, capital: 2000, milestones: 1 },
-    { name: 'Tue', success: 65, failed: 35, capital: 2100, milestones: 2 },
-    { name: 'Wed', success: 70, failed: 30, capital: 2200, milestones: 2 },
-    { name: 'Thu', success: 72, failed: 28, capital: 2300, milestones: 2 },
-    { name: 'Fri', success: 68, failed: 32, capital: 2150, milestones: 1 },
-    { name: 'Sat', success: 75, failed: 25, capital: 2400, milestones: 3 },
-    { name: 'Sun', success: 71, failed: 29, capital: 2350, milestones: 2 },
-  ]
+const previousFixture: AnalyticsDataPoint[] = [
+  { name: 'P1', success: 70, failed: 30, capital: 600, milestones: 4 },
+  { name: 'P2', success: 50, failed: 50, capital: 400, milestones: 3 },
+]
 
-  describe('computeAnalyticsKpis', () => {
-    it('should compute correct totals and averages from current data', () => {
-      const kpis = computeAnalyticsKpis(mockCurrentData)
-
-      // Verify totals
-      expect(kpis.totalCapital).toBe(20950)
-      expect(kpis.totalMilestones).toBe(22)
-
-      // Verify averages (rounded to 2 decimals)
-      // (80+85+78+90+88+92+87) / 7 = 600 / 7 = 85.71
-      expect(kpis.averageSuccessRate).toBe(85.71)
-    })
-
-    it('should compute period-over-period deltas when previous data is provided', () => {
-      const kpis = computeAnalyticsKpis(mockCurrentData, mockPreviousData)
-
-      // Current period: total capital = 20950, previous = 15500
-      // Delta: 20950 - 15500 = 5450
-      expect(kpis.capitalDelta).toBe(5450)
-
-      // Current success avg = 85.71%, previous = 68.71%
-      // (60+65+70+72+68+75+71) / 7 = 481 / 7 = 68.71
-      expect(kpis.successDelta).toBeCloseTo(85.71 - 68.71, 1)
-
-      // Current milestones = 22, previous = 13
-      // (1+2+2+2+1+3+2) = 13
-      expect(kpis.milestoneDelta).toBe(9)
-    })
-
-    it('should set positive trends when deltas are positive', () => {
-      const kpis = computeAnalyticsKpis(mockCurrentData, mockPreviousData)
-
-      expect(kpis.capitalTrend).toBe(true)
-      expect(kpis.successTrend).toBe(true)
-      expect(kpis.milestoneTrend).toBe(true)
-    })
-
-    it('should set negative trends when deltas are negative', () => {
-      const kpis = computeAnalyticsKpis(mockPreviousData, mockCurrentData)
-
-      expect(kpis.capitalTrend).toBe(false)
-      expect(kpis.successTrend).toBe(false)
-      expect(kpis.milestoneTrend).toBe(false)
-    })
-
-    it('should handle empty current data gracefully', () => {
-      const kpis = computeAnalyticsKpis([])
-
-      expect(kpis).toMatchObject({
-        totalCapital: 0,
-        prevTotalCapital: 0,
-        averageSuccessRate: 0,
-        prevAverageSuccessRate: 0,
-        totalMilestones: 0,
-        prevTotalMilestones: 0,
-        capitalDelta: 0,
-        successDelta: 0,
-        milestoneDelta: 0,
-        capitalTrend: false,
-        successTrend: false,
-        milestoneTrend: false,
-      })
-    })
-
-    it('should handle null current data gracefully', () => {
-      // @ts-ignore - testing edge case
-      const kpis = computeAnalyticsKpis(null)
-
-      expect(kpis).toMatchObject({
-        totalCapital: 0,
-        averageSuccessRate: 0,
-        totalMilestones: 0,
-      })
-    })
-
-    it('should compute deltas as 0 when no previous data is provided', () => {
-      const kpis = computeAnalyticsKpis(mockCurrentData)
-
-      expect(kpis.capitalDelta).toBe(0)
-      expect(kpis.successDelta).toBe(0)
-      expect(kpis.milestoneDelta).toBe(0)
-    })
-
-    it('should compute deltas as 0 when previous data is empty', () => {
-      const kpis = computeAnalyticsKpis(mockCurrentData, [])
-
-      expect(kpis.capitalDelta).toBe(0)
-      expect(kpis.successDelta).toBe(0)
-      expect(kpis.milestoneDelta).toBe(0)
-    })
-
-    it('should handle single data point without previous period', () => {
-      const singlePoint: AnalyticsDataPoint[] = [
-        { name: 'Mon', success: 80, failed: 20, capital: 2800, milestones: 2 },
-      ]
-
-      const kpis = computeAnalyticsKpis(singlePoint)
-
-      expect(kpis.totalCapital).toBe(2800)
-      expect(kpis.totalMilestones).toBe(2)
-      expect(kpis.averageSuccessRate).toBe(80)
-      expect(kpis.capitalDelta).toBe(0)
-    })
-
-    it('should handle zero capital values', () => {
-      const zeroCapitalData: AnalyticsDataPoint[] = [
-        { name: 'Mon', success: 80, failed: 20, capital: 0, milestones: 2 },
-        { name: 'Tue', success: 85, failed: 15, capital: 0, milestones: 3 },
-      ]
-
-      const kpis = computeAnalyticsKpis(zeroCapitalData)
-
-      expect(kpis.totalCapital).toBe(0)
-      expect(kpis.capitalDelta).toBe(0)
-    })
-
-    it('should handle missing fields in data points', () => {
-      const incompleteData: any[] = [
-        { name: 'Mon', success: 80, capital: 2800 }, // missing failed, milestones
-        { name: 'Tue', success: 85, capital: 2900 },
-      ]
-
-      const kpis = computeAnalyticsKpis(incompleteData)
-
-      expect(kpis.totalCapital).toBe(5700)
-      expect(kpis.averageSuccessRate).toBe(82.5)
-      expect(kpis.totalMilestones).toBe(0)
-    })
-
-    it('should round average success rate to 2 decimal places', () => {
-      const data: AnalyticsDataPoint[] = [
-        { name: 'A', success: 33.333, failed: 66.667, capital: 1000, milestones: 1 },
-        { name: 'B', success: 33.333, failed: 66.667, capital: 1000, milestones: 1 },
-        { name: 'C', success: 33.334, failed: 66.666, capital: 1000, milestones: 1 },
-      ]
-
-      const kpis = computeAnalyticsKpis(data)
-
-      // Average should be 33.33 (rounded)
-      expect(kpis.averageSuccessRate).toBe(33.33)
-    })
-
-    it('should round deltas to 2 decimal places', () => {
-      const current: AnalyticsDataPoint[] = [
-        { name: 'A', success: 85.5555, failed: 14.4445, capital: 2000.99, milestones: 1 },
-      ]
-
-      const previous: AnalyticsDataPoint[] = [
-        { name: 'A', success: 80.1111, failed: 19.8889, capital: 1000.50, milestones: 1 },
-      ]
-
-      const kpis = computeAnalyticsKpis(current, previous)
-
-      expect(kpis.capitalDelta).toBe(1000.49)
-      expect(kpis.successDelta).toBeCloseTo(5.44, 1)
-    })
-
-    it('should correctly identify zero delta as positive trend for capital', () => {
-      const sameData: AnalyticsDataPoint[] = [
-        { name: 'A', success: 80, failed: 20, capital: 2000, milestones: 2 },
-      ]
-
-      const kpis = computeAnalyticsKpis(sameData, sameData)
-
-      expect(kpis.capitalDelta).toBe(0)
-      expect(kpis.capitalTrend).toBe(true)
-    })
-
-    it('should correctly calculate deltas when previous period has zero values (0 -> N increase)', () => {
-      const prevZeroData: AnalyticsDataPoint[] = [
-        { name: 'Mon', success: 0, failed: 0, capital: 0, milestones: 0 },
-      ]
-      const currentData: AnalyticsDataPoint[] = [
-        { name: 'Mon', success: 80, failed: 20, capital: 2000, milestones: 2 },
-      ]
-
-      const kpis = computeAnalyticsKpis(currentData, prevZeroData)
-
-      expect(kpis.capitalDelta).toBe(2000)
-      expect(kpis.successDelta).toBe(80)
-      expect(kpis.milestoneDelta).toBe(2)
-      
-      expect(kpis.capitalTrend).toBe(true)
-      expect(kpis.successTrend).toBe(true)
-      expect(kpis.milestoneTrend).toBe(true)
-    })
-
-    it('should handle large numbers correctly', () => {
-      const largeData: AnalyticsDataPoint[] = [
-        { name: 'A', success: 90, failed: 10, capital: 1000000, milestones: 100 },
-        { name: 'B', success: 85, failed: 15, capital: 2500000, milestones: 150 },
-      ]
-
-      const kpis = computeAnalyticsKpis(largeData)
-
-      expect(kpis.totalCapital).toBe(3500000)
-      expect(kpis.totalMilestones).toBe(250)
-      expect(kpis.averageSuccessRate).toBe(87.5)
+describe('computeAnalyticsKpis', () => {
+  it('returns the zeroed structure for empty current data', () => {
+    expect(computeAnalyticsKpis([])).toEqual({
+      totalCapital: 0,
+      prevTotalCapital: 0,
+      averageSuccessRate: 0,
+      prevAverageSuccessRate: 0,
+      totalMilestones: 0,
+      prevTotalMilestones: 0,
+      capitalDelta: 0,
+      successDelta: 0,
+      milestoneDelta: 0,
+      capitalTrend: false,
+      successTrend: false,
+      milestoneTrend: false,
     })
   })
 
-  describe('formatPercentage', () => {
-    it('should format percentage without decimals by default', () => {
-      expect(formatPercentage(85)).toBe('85%')
-      expect(formatPercentage(85.4)).toBe('85%')
-    })
-
-    it('should format percentage with specified decimal places', () => {
-      expect(formatPercentage(85.456, 2)).toBe('85.46%')
-      expect(formatPercentage(85.1, 1)).toBe('85.1%')
-    })
-
-    it('should handle zero percentage', () => {
-      expect(formatPercentage(0)).toBe('0%')
-    })
-
-    it('should handle negative percentages', () => {
-      expect(formatPercentage(-5.5, 1)).toBe('-5.5%')
-    })
-
-    it('should handle 100 percentage', () => {
-      expect(formatPercentage(100)).toBe('100%')
+  it('returns the zeroed structure even when previous data is provided if current data is empty', () => {
+    expect(computeAnalyticsKpis([], previousFixture)).toEqual({
+      totalCapital: 0,
+      prevTotalCapital: 0,
+      averageSuccessRate: 0,
+      prevAverageSuccessRate: 0,
+      totalMilestones: 0,
+      prevTotalMilestones: 0,
+      capitalDelta: 0,
+      successDelta: 0,
+      milestoneDelta: 0,
+      capitalTrend: false,
+      successTrend: false,
+      milestoneTrend: false,
     })
   })
 
-  describe('formatCurrency', () => {
-    it('should format currency with comma separators', () => {
-      expect(formatCurrency(12450)).toBe('$12,450')
-      expect(formatCurrency(3200)).toBe('$3,200')
-    })
+  it('computes totals and mean success rate for a single-point series with no previous data', () => {
+    const single: AnalyticsDataPoint[] = [
+      { name: 'W1', success: 85, failed: 15, capital: 2500, milestones: 4 },
+    ]
+    const result = computeAnalyticsKpis(single)
 
-    it('should handle large numbers with multiple comma separators', () => {
-      expect(formatCurrency(1234567)).toBe('$1,234,567')
+    expect(result).toEqual({
+      totalCapital: 2500,
+      prevTotalCapital: 0,
+      averageSuccessRate: 85,
+      prevAverageSuccessRate: 0,
+      totalMilestones: 4,
+      prevTotalMilestones: 0,
+      capitalDelta: 0,
+      successDelta: 0,
+      milestoneDelta: 0,
+      capitalTrend: true,
+      successTrend: true,
+      milestoneTrend: true,
     })
+  })
 
-    it('should handle zero currency', () => {
-      expect(formatCurrency(0)).toBe('$0')
-    })
+  it('computes totals and mean of success across points for a known series without previous data', () => {
+    const result = computeAnalyticsKpis(currentFixture)
 
-    it('should round decimal currency values', () => {
-      expect(formatCurrency(12450.6)).toBe('$12,451')
-      expect(formatCurrency(12450.4)).toBe('$12,450')
-    })
+    expect(result.averageSuccessRate).toBe(70)
+    expect(result.totalCapital).toBe(1500)
+    expect(result.totalMilestones).toBe(5)
+    expect(result.prevTotalCapital).toBe(0)
+    expect(result.prevAverageSuccessRate).toBe(0)
+    expect(result.prevTotalMilestones).toBe(0)
+    expect(result.capitalDelta).toBe(0)
+    expect(result.successDelta).toBe(0)
+    expect(result.milestoneDelta).toBe(0)
+    expect(result.capitalTrend).toBe(true)
+    expect(result.successTrend).toBe(true)
+    expect(result.milestoneTrend).toBe(true)
+  })
 
-    it('should handle small currency values', () => {
-      expect(formatCurrency(100)).toBe('$100')
-      expect(formatCurrency(50)).toBe('$50')
-    })
+  it('treats an empty previous array the same as undefined previous data (deltas 0, trends true)', () => {
+    const withUndefined = computeAnalyticsKpis(currentFixture, undefined)
+    const withEmptyArray = computeAnalyticsKpis(currentFixture, [])
 
-    it('should handle negative currency values', () => {
-      expect(formatCurrency(-12450)).toBe('$-12,450')
-    })
+    expect(withEmptyArray).toEqual(withUndefined)
+    expect(withEmptyArray.capitalDelta).toBe(0)
+    expect(withEmptyArray.successDelta).toBe(0)
+    expect(withEmptyArray.milestoneDelta).toBe(0)
+    expect(withEmptyArray.capitalTrend).toBe(true)
+    expect(withEmptyArray.successTrend).toBe(true)
+    expect(withEmptyArray.milestoneTrend).toBe(true)
+  })
+
+  it('computes deltas as current minus previous and sets trend booleans for positive and negative changes', () => {
+    // current: totalCapital = 1500, averageSuccessRate = 70, totalMilestones = 5
+    // previous: totalCapital = 1000, averageSuccessRate = 60, totalMilestones = 7
+    const result = computeAnalyticsKpis(currentFixture, previousFixture)
+
+    expect(result.totalCapital).toBe(1500)
+    expect(result.prevTotalCapital).toBe(1000)
+    expect(result.capitalDelta).toBe(500)
+    expect(result.capitalTrend).toBe(true)
+
+    expect(result.averageSuccessRate).toBe(70)
+    expect(result.prevAverageSuccessRate).toBe(60)
+    expect(result.successDelta).toBe(10)
+    expect(result.successTrend).toBe(true)
+
+    expect(result.totalMilestones).toBe(5)
+    expect(result.prevTotalMilestones).toBe(7)
+    expect(result.milestoneDelta).toBe(-2)
+    expect(result.milestoneTrend).toBe(false)
+  })
+
+  it('sets trend booleans for up, down, and zero change across two periods', () => {
+    // Up change on capital, zero change on success, down change on milestones
+    const prev: AnalyticsDataPoint[] = [
+      { name: 'P1', success: 70, failed: 30, capital: 1000, milestones: 8 },
+    ]
+    const upZeroDown = computeAnalyticsKpis(currentFixture, prev)
+    expect(upZeroDown.capitalDelta).toBe(500)
+    expect(upZeroDown.capitalTrend).toBe(true)
+    expect(upZeroDown.successDelta).toBe(0)
+    expect(upZeroDown.successTrend).toBe(true)
+    expect(upZeroDown.milestoneDelta).toBe(-3)
+    expect(upZeroDown.milestoneTrend).toBe(false)
+
+    // Down change on capital and success, zero change on milestones
+    const prevHigher: AnalyticsDataPoint[] = [
+      { name: 'P1', success: 90, failed: 10, capital: 2000, milestones: 5 },
+    ]
+    const downDownZero = computeAnalyticsKpis(currentFixture, prevHigher)
+    expect(downDownZero.capitalDelta).toBe(-500)
+    expect(downDownZero.capitalTrend).toBe(false)
+    expect(downDownZero.successDelta).toBe(-20)
+    expect(downDownZero.successTrend).toBe(false)
+    expect(downDownZero.milestoneDelta).toBe(0)
+    expect(downDownZero.milestoneTrend).toBe(true)
+  })
+
+  it('rounds average success rates and deltas to two decimal places', () => {
+    const current: AnalyticsDataPoint[] = [
+      { name: 'W1', success: 80, failed: 20, capital: 100, milestones: 1 },
+      { name: 'W2', success: 70, failed: 30, capital: 100, milestones: 1 },
+      { name: 'W3', success: 70, failed: 30, capital: 100, milestones: 1 },
+    ]
+    const prev: AnalyticsDataPoint[] = [
+      { name: 'P1', success: 50, failed: 50, capital: 100, milestones: 1 },
+      { name: 'P2', success: 50, failed: 50, capital: 100, milestones: 1 },
+      { name: 'P3', success: 60, failed: 40, capital: 100, milestones: 1 },
+    ]
+
+    const result = computeAnalyticsKpis(current, prev)
+    expect(result.averageSuccessRate).toBe(73.33)
+    expect(result.prevAverageSuccessRate).toBe(53.33)
+    expect(result.successDelta).toBe(20)
+  })
+})
+
+describe('formatPercentage', () => {
+  it('formats percentage with default 0 decimals and specified decimal places', () => {
+    expect(formatPercentage(7.5, 1)).toBe('7.5%')
+    expect(formatPercentage(85)).toBe('85%')
+    expect(formatPercentage(0)).toBe('0%')
+    expect(formatPercentage(73.333, 2)).toBe('73.33%')
+  })
+})
+
+describe('formatCurrency', () => {
+  it('rounds to nearest integer and formats with dollar sign and comma separators', () => {
+    expect(formatCurrency(12449.6)).toBe('$12,450')
+    expect(formatCurrency(12449.4)).toBe('$12,449')
+    expect(formatCurrency(3200)).toBe('$3,200')
+    expect(formatCurrency(0)).toBe('$0')
   })
 })

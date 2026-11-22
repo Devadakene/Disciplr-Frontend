@@ -50,7 +50,7 @@ function renderPalette(options?: {
 }) {
   const loadVaults = options?.loadVaults ?? vi.fn().mockResolvedValue(vaults);
 
-  render(
+  const view = render(
     <MemoryRouter initialEntries={[options?.initialPath ?? "/"]}>
       <CommandPalette loadVaults={loadVaults} />
       <Routes>
@@ -59,7 +59,7 @@ function renderPalette(options?: {
     </MemoryRouter>,
   );
 
-  return { loadVaults };
+  return { loadVaults, ...view };
 }
 
 async function openPalette() {
@@ -210,13 +210,18 @@ describe("CommandPalette", () => {
 
     expect(input).toHaveAttribute("aria-activedescendant", "command-palette-option-0");
 
-    await user.hover(screen.getByRole("option", { name: /Verifier Queue/i }));
+    // Assert against the hovered option's own id rather than a hardcoded
+    // index, since the exact position of each item within the combined
+    // quick-actions + vaults list shifts as quick actions are added/removed.
+    const verifierQueueOption = screen.getByRole("option", { name: /Verifier Queue/i });
+    await user.hover(verifierQueueOption);
 
-    expect(input).toHaveAttribute("aria-activedescendant", "command-palette-option-1");
+    expect(input).toHaveAttribute("aria-activedescendant", verifierQueueOption.id);
 
-    await user.hover(screen.getByRole("option", { name: /Alpha Vault/i }));
+    const alphaVaultOption = screen.getByRole("option", { name: /Alpha Vault/i });
+    await user.hover(alphaVaultOption);
 
-    expect(input).toHaveAttribute("aria-activedescendant", "command-palette-option-3");
+    expect(input).toHaveAttribute("aria-activedescendant", alphaVaultOption.id);
   });
 
   it("clears aria-activedescendant when no items match", async () => {
@@ -231,6 +236,96 @@ describe("CommandPalette", () => {
     expect(
       screen.getByRole("textbox", { name: /search vaults and actions/i }),
     ).not.toHaveAttribute("aria-activedescendant");
+  });
+
+  it("updates aria-activedescendant on ArrowUp wrapping to the last option", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    expect(input).toHaveAttribute(
+      "aria-activedescendant",
+      "command-palette-option-0",
+    );
+
+    await user.keyboard("{ArrowUp}");
+
+    const allOptions = screen.getAllByRole("option");
+    const lastOptionIndex = allOptions.length - 1;
+    await waitFor(() =>
+      expect(input).toHaveAttribute(
+        "aria-activedescendant",
+        `command-palette-option-${lastOptionIndex}`,
+      ),
+    );
+  });
+
+  it("synchronizes aria-selected with aria-activedescendant across keyboard navigation", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    const activeId = input.getAttribute("aria-activedescendant");
+    expect(activeId).toBe("command-palette-option-0");
+
+    const initialOption = document.getElementById(activeId!);
+    expect(initialOption).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{ArrowDown}");
+
+    const nextActiveId = input.getAttribute("aria-activedescendant");
+    expect(nextActiveId).toBe("command-palette-option-1");
+
+    const nextOption = document.getElementById(nextActiveId!);
+    expect(nextOption).toHaveAttribute("aria-selected", "true");
+    expect(initialOption).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("resets aria-activedescendant to the first matching option when query changes", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(input).toHaveAttribute(
+      "aria-activedescendant",
+      "command-palette-option-2",
+    );
+
+    await user.type(input, "alpha");
+
+    await waitFor(() => {
+      expect(input).toHaveAttribute(
+        "aria-activedescendant",
+        "command-palette-option-0",
+      );
+      const alphaOption = screen.getByRole("option", { name: /Alpha Vault/i });
+      expect(alphaOption).toHaveAttribute("id", "command-palette-option-0");
+      expect(alphaOption).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("wires combobox accessibility attributes on input and listbox options", async () => {
+    await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+    const listbox = screen.getByRole("listbox", {
+      name: /command palette results/i,
+    });
+
+    expect(input).toHaveAttribute("aria-controls", listbox.id);
+    expect(input).toHaveAttribute("aria-autocomplete", "list");
+    expect(input).toHaveAttribute("aria-expanded", "true");
+
+    const options = screen.getAllByRole("option");
+    expect(options.length).toBeGreaterThan(0);
+    options.forEach((opt, index) => {
+      expect(opt).toHaveAttribute("id", `command-palette-option-${index}`);
+    });
   });
 
   it("closes with Escape, backdrop click, and restores focus to the trigger", async () => {
@@ -288,6 +383,93 @@ describe("CommandPalette", () => {
       ).toHaveStyle({
         transition: "none",
       }),
+    );
+  });
+
+  it("ranks query 'vlt' with vault items above 'Dashboard'", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /Alpha Vault/i })).toBeInTheDocument();
+    });
+
+    await user.type(input, "vlt");
+
+    const options = screen.getAllByRole("option");
+    expect(options.length).toBeGreaterThan(0);
+    // First option should be a vault, not Dashboard
+    expect(options[0]).toHaveTextContent(/Vault/i);
+    expect(options[0]).not.toHaveTextContent(/Dashboard/i);
+  });
+
+  it("ranks query 'cv' with 'Create Vault' first", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    await user.type(input, "cv");
+
+    const options = screen.getAllByRole("option");
+    expect(options[0]).toHaveTextContent(/Create Vault/i);
+  });
+
+  it("wraps matched characters in <mark>", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    await user.type(input, "create");
+
+    const createVaultOption = screen.getByRole("option", { name: /Create Vault/i });
+    const mark = createVaultOption.querySelector("mark");
+    expect(mark).not.toBeNull();
+    expect(mark?.textContent?.toLowerCase()).toContain("create");
+  });
+
+  it("persists recents to localStorage across remounts and shows them under Recent for empty query", async () => {
+    localStorage.clear();
+    const { unmount } = renderPalette();
+    const user = await openPalette();
+
+    // Click 'Analytics'
+    const analyticsOption = screen.getByRole("option", { name: /Analytics/i });
+    await user.click(analyticsOption);
+
+    // Verify localStorage has the action id
+    const stored = JSON.parse(localStorage.getItem("disciplr:palette:recent:v1") || "[]");
+    expect(stored).toContain("action-analytics");
+
+    unmount();
+
+    // Remount palette
+    renderPalette();
+    const user2 = await openPalette();
+    const recentOptions = screen.getAllByRole("option");
+    // First option should be Analytics marked as RECENT
+    expect(recentOptions[0]).toHaveTextContent(/Analytics/i);
+    expect(recentOptions[0]).toHaveTextContent(/Recent/i);
+  });
+
+  it("executes perform() for non-navigation commands like shortcuts help", async () => {
+    const user = await openPaletteAfterRender();
+    const input = screen.getByRole("textbox", {
+      name: /search vaults and actions/i,
+    });
+
+    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+
+    await user.type(input, "shortcuts");
+
+    const shortcutsOption = screen.getByRole("option", { name: /Keyboard Shortcuts/i });
+    await user.click(shortcutsOption);
+
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "disciplr:open-shortcuts" }),
     );
   });
 });

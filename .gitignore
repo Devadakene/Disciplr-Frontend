@@ -5,5 +5,16 @@ dist
 .env.*
 .DS_Store
 coverage
+test-results/
+playwright-report/
 
 # Working on it 
+.opencode
+.vercel
+.env*
+
+design-system/coverage/
+
+# Playwright
+test-results
+playwright-report

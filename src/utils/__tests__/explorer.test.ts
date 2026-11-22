@@ -1,10 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { contractExplorerUrl, networkLabel, EXPLORER_BASE_URLS as EXPLORER_BASE_URLS_FROM_EXPLORER } from '../explorer';
+import {
+  contractExplorerUrl,
+  explorerBaseUrl,
+  getExplorerAccountUrl,
+  getExplorerTxUrl,
+  networkLabel,
+  EXPLORER_BASE_URLS as EXPLORER_BASE_URLS_FROM_EXPLORER,
+} from '../explorer';
 import { EXPLORER_BASE_URLS as EXPLORER_BASE_URLS_FROM_HORIZON } from '../horizon';
 
 const TESTNET_BASE = 'https://stellar.expert/explorer/testnet';
 const PUBLIC_BASE = 'https://stellar.expert/explorer/public';
 const ADDR = 'GCONT3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK';
+const VALID_STELLAR_ADDR = 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7';
+const VALID_TX_HASH = 'a'.repeat(64);
 
 describe('contractExplorerUrl', () => {
   it('builds a testnet contract URL for TESTNET', () => {
@@ -70,5 +79,59 @@ describe('networkLabel', () => {
 
   it('returns "Testnet" for an unknown string', () => {
     expect(networkLabel('FUTURENET')).toBe('Testnet');
+  });
+});
+
+describe('explorerBaseUrl', () => {
+  it('returns testnet base URL for TESTNET and null', () => {
+    expect(explorerBaseUrl('TESTNET')).toBe(TESTNET_BASE);
+    expect(explorerBaseUrl(null)).toBe(TESTNET_BASE);
+  });
+
+  it('returns public base URL for PUBLIC', () => {
+    expect(explorerBaseUrl('PUBLIC')).toBe(PUBLIC_BASE);
+  });
+});
+
+describe('getExplorerTxUrl', () => {
+  it('builds a public tx URL for a valid 64-hex hash on PUBLIC', () => {
+    expect(getExplorerTxUrl(VALID_TX_HASH, 'PUBLIC')).toBe(
+      `${PUBLIC_BASE}/tx/${VALID_TX_HASH}`,
+    );
+  });
+
+  it('builds a testnet tx URL for TESTNET and null network', () => {
+    expect(getExplorerTxUrl(VALID_TX_HASH, 'TESTNET')).toBe(
+      `${TESTNET_BASE}/tx/${VALID_TX_HASH}`,
+    );
+    expect(getExplorerTxUrl(VALID_TX_HASH, null)).toBe(
+      `${TESTNET_BASE}/tx/${VALID_TX_HASH}`,
+    );
+  });
+
+  it('returns empty string for invalid or hostile tx hashes', () => {
+    expect(getExplorerTxUrl('../../x', 'PUBLIC')).toBe('');
+    expect(getExplorerTxUrl('', 'TESTNET')).toBe('');
+    expect(getExplorerTxUrl('short', 'TESTNET')).toBe('');
+    expect(getExplorerTxUrl('abc def 1234', 'PUBLIC')).toBe('');
+  });
+});
+
+describe('getExplorerAccountUrl', () => {
+  it('builds account URLs from explorerBaseUrl for PUBLIC, TESTNET, and null', () => {
+    expect(getExplorerAccountUrl(VALID_STELLAR_ADDR, 'PUBLIC')).toBe(
+      `${PUBLIC_BASE}/account/${VALID_STELLAR_ADDR}`,
+    );
+    expect(getExplorerAccountUrl(VALID_STELLAR_ADDR, 'TESTNET')).toBe(
+      `${TESTNET_BASE}/account/${VALID_STELLAR_ADDR}`,
+    );
+    expect(getExplorerAccountUrl(VALID_STELLAR_ADDR, null)).toBe(
+      `${TESTNET_BASE}/account/${VALID_STELLAR_ADDR}`,
+    );
+  });
+
+  it('returns empty string for invalid Stellar addresses', () => {
+    expect(getExplorerAccountUrl('../../x', 'PUBLIC')).toBe('');
+    expect(getExplorerAccountUrl('', 'TESTNET')).toBe('');
   });
 });

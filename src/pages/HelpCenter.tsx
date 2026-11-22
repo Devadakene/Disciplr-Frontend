@@ -1,81 +1,36 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-
-type HelpArticle = {
-  title: string
-  category: string
-  excerpt: string
-  keywords: string[]
-  url: string
-}
-
-const helpArticles: HelpArticle[] = [
-  {
-    title: 'Create a vault in a few steps',
-    category: 'Vaults',
-    excerpt: 'Set a target amount, choose a deadline, and review the vault before you publish it.',
-    keywords: ['vault', 'create', 'steps'],
-    url: '/vaults/create',
-  },
-  {
-    title: 'Track vault progress and milestones',
-    category: 'Vaults',
-    excerpt: 'Monitor milestone completion, review the vault timeline, and understand what is still pending.',
-    keywords: ['vault', 'milestones', 'progress'],
-    url: '/vaults',
-  },
-  {
-    title: 'Review analytics trends',
-    category: 'Analytics',
-    excerpt: 'Use the analytics dashboard to compare growth, capital flow, and benchmark performance over time.',
-    keywords: ['analytics', 'trends', 'reports'],
-    url: '/analytics',
-  },
-  {
-    title: 'Keep your wallet connected',
-    category: 'Wallets',
-    excerpt: 'Troubleshoot network mismatch warnings and keep your wallet status consistent across Disciplr.',
-    keywords: ['wallet', 'network', 'freighter'],
-    url: '/dashboard',
-  },
-  {
-    title: 'Check pending validations and queue status',
-    category: 'Verifier',
-    excerpt: 'Review vaults waiting for approval, inspect the decision details, and move through the queue faster.',
-    keywords: ['verifier', 'validation', 'queue'],
-    url: '/verifier/queue',
-  },
-]
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { articles } from '../help/articles'
+import { searchArticles } from '../help/search'
+import { HighlightText } from '../help/components/HighlightText'
 
 const categories = [
   { label: 'Vaults', description: 'Create, manage, and monitor vault activity.' },
   { label: 'Wallets', description: 'Understand network mismatches and wallet setup.' },
-  { label: 'Analytics', description: 'Read trends and benchmark performance.' },
   { label: 'Verifier', description: 'Review pending validations and approvals.' },
 ]
 
 const supportOptions = [
-  { title: 'Live Chat', detail: 'Ask for a quick product walkthrough in real time.' },
-  { title: 'Email', detail: 'support@disciplr.app' },
-  { title: 'Community Forum', detail: 'Join the Disciplr Discord and discuss setup or troubleshooting.' },
+  {
+    title: 'Live Chat',
+    detail: 'Live chat support is currently unavailable. Please reach out via email or Discord.',
+    status: 'Unavailable',
+  },
+  {
+    title: 'Email',
+    detail: 'support@disciplr.app',
+    href: 'mailto:support@disciplr.app',
+  },
+  {
+    title: 'Community Forum',
+    detail: 'Join the Disciplr Discord and discuss setup or troubleshooting.',
+    href: 'https://discord.gg/disciplr',
+  },
 ]
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function highlightMatch(text: string, query: string) {
-  if (!query) return text
-
-  const pattern = new RegExp(`(${escapeRegExp(query)})`, 'ig')
-  return text.split(pattern).map((part, index) => {
-    const isMatch = part.toLowerCase() === query.toLowerCase()
-    return isMatch ? <mark key={`${part}-${index}`} style={{ background: 'var(--accent-transparent)', color: 'inherit' }}>{part}</mark> : <span key={`${part}-${index}`}>{part}</span>
-  })
-}
 
 export default function HelpCenter() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const query = searchParams.get('q')?.trim() ?? ''
   const [draftQuery, setDraftQuery] = useState(query)
@@ -84,32 +39,30 @@ export default function HelpCenter() {
     setDraftQuery(query)
   }, [query])
 
-  const filteredArticles = useMemo(() => {
-    if (!query) return helpArticles
-
-    return helpArticles.filter((article) => {
-      const haystack = [article.title, article.category, article.excerpt, article.keywords.join(' ')]
-        .join(' ')
-        .toLowerCase()
-
-      return haystack.includes(query.toLowerCase())
-    })
+  const searchResults = useMemo(() => {
+    return searchArticles(articles, query)
   }, [query])
 
-  const featuredArticles = helpArticles.slice(0, 3)
-  const searchResultsCount = filteredArticles.length
+  const featuredArticles = articles.slice(0, 3)
+  const searchResultsCount = searchResults.length
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const nextQuery = draftQuery.trim()
-    if (nextQuery) {
-      navigate(`/help/search?q=${encodeURIComponent(nextQuery)}`)
-      setSearchParams({ q: nextQuery })
-      return
-    }
 
-    navigate('/help')
-    setSearchParams({})
+    if (location.pathname === '/help/search') {
+      if (nextQuery) {
+        setSearchParams({ q: nextQuery })
+      } else {
+        navigate('/help')
+      }
+    } else {
+      if (nextQuery) {
+        navigate(`/help/search?q=${encodeURIComponent(nextQuery)}`)
+      } else {
+        navigate('/help')
+      }
+    }
   }
 
   return (
@@ -122,7 +75,7 @@ export default function HelpCenter() {
             </div>
             <h1 style={{ margin: '0.35rem 0 0.45rem', fontSize: '1.9rem' }}>Get unstuck with fast answers</h1>
             <p style={{ margin: 0, color: 'var(--muted)', maxWidth: '760px' }}>
-              Browse a small but complete support MVP for vault setup, wallet troubleshooting, analytics, and verifier workflows.
+              Explore guides and technical documentation for vault setup, wallet troubleshooting, verification workflows, and smart contract mechanics.
             </p>
           </div>
 
@@ -132,6 +85,7 @@ export default function HelpCenter() {
               value={draftQuery}
               onChange={(event) => setDraftQuery(event.target.value)}
               placeholder="Search help articles"
+              aria-label="Search help articles"
               style={{
                 flex: '1 1 260px',
                 minWidth: 0,
@@ -160,6 +114,7 @@ export default function HelpCenter() {
         </div>
       </section>
 
+      {/* Categories section */}
       <section style={{ display: 'grid', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0 }}>Browse by Category</h2>
@@ -188,12 +143,13 @@ export default function HelpCenter() {
         </div>
       </section>
 
+      {/* Featured Articles section */}
       <section style={{ display: 'grid', gap: '1rem' }}>
         <h2 style={{ margin: 0 }}>Featured Articles</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
           {featuredArticles.map((article) => (
             <article
-              key={article.title}
+              key={article.slug}
               style={{
                 padding: '1rem',
                 border: '1px solid var(--border)',
@@ -205,8 +161,8 @@ export default function HelpCenter() {
             >
               <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem' }}>{article.category}</div>
               <div style={{ fontWeight: 700 }}>{article.title}</div>
-              <div style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>{article.excerpt}</div>
-              <Link to={article.url} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 700 }}>
+              <div style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>{article.summary}</div>
+              <Link to={`/help/articles/${article.slug}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 700 }}>
                 Open article
               </Link>
             </article>
@@ -214,47 +170,90 @@ export default function HelpCenter() {
         </div>
       </section>
 
-      <section style={{ display: 'grid', gap: '1rem' }}>
-        <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface)' }}>
-          <div style={{ fontWeight: 700, marginBottom: '0.45rem' }}>Pro Tip</div>
-          <div style={{ color: 'var(--muted)' }}>
-            Use the search box above to jump straight to vault, analytics, wallet, or verifier guidance from one place.
-          </div>
-        </div>
-      </section>
-
+      {/* Search results or empty state when query is present */}
       {query ? (
         <section style={{ display: 'grid', gap: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-            <h2 style={{ margin: 0 }}>{searchResultsCount} result{searchResultsCount === 1 ? '' : 's'} for “{query}”</h2>
+            <h2 style={{ margin: 0 }} aria-live="polite">
+              {searchResultsCount} result{searchResultsCount === 1 ? '' : 's'} for “{query}”
+            </h2>
             <Link to="/help" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 700 }}>
               Back to Help Center home
             </Link>
           </div>
 
-          <div style={{ display: 'grid', gap: '1rem' }}>
-            {filteredArticles.map((article) => (
-              <article
-                key={article.title}
-                style={{
-                  padding: '1rem',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius)',
-                  background: 'var(--surface)',
-                }}
-              >
-                <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem', marginBottom: '0.35rem' }}>{article.category}</div>
-                <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>{highlightMatch(article.title, query)}</div>
-                <div style={{ color: 'var(--muted)', fontSize: '0.88rem', marginBottom: '0.5rem' }}>{highlightMatch(article.excerpt, query)}</div>
-                <Link to={article.url} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 700 }}>
-                  Open article
-                </Link>
-              </article>
-            ))}
-          </div>
+          {searchResultsCount === 0 ? (
+            <div
+              style={{
+                padding: '2rem',
+                border: '1px dashed var(--border)',
+                borderRadius: 'var(--radius)',
+                background: 'var(--surface)',
+                display: 'grid',
+                gap: '1rem',
+                textAlign: 'center',
+                justifyItems: 'center',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>No articles found matching “{query}”</div>
+              <p style={{ margin: 0, color: 'var(--muted)', maxWidth: '500px' }}>
+                We couldn't find any articles with all your search terms. Try checking your spelling or explore one of these popular categories:
+              </p>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', marginTop: '0.5rem' }}>
+                {categories.map((cat) => (
+                  <Link
+                    key={cat.label}
+                    to={`/help/search?q=${encodeURIComponent(cat.label.toLowerCase())}`}
+                    style={{
+                      padding: '0.4rem 0.85rem',
+                      borderRadius: 'var(--radius)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
+                      color: 'var(--accent)',
+                      textDecoration: 'none',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    {cat.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: '1rem' }}>
+              {searchResults.map(({ article }) => (
+                <article
+                  key={article.slug}
+                  style={{
+                    padding: '1.25rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)',
+                    background: 'var(--surface)',
+                    display: 'grid',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem' }}>{article.category}</div>
+                  <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+                    <HighlightText text={article.title} query={query} />
+                  </div>
+                  <div style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>
+                    <HighlightText text={article.summary} query={query} />
+                  </div>
+                  <div style={{ marginTop: '0.35rem' }}>
+                    <Link to={`/help/articles/${article.slug}`} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 700 }}>
+                      Open article
+                    </Link>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       ) : null}
 
+      {/* Support section */}
       <section style={{ display: 'grid', gap: '1rem' }}>
         <h2 style={{ margin: 0 }}>Still need help?</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
@@ -268,10 +267,37 @@ export default function HelpCenter() {
                 background: 'var(--surface)',
                 display: 'grid',
                 gap: '0.3rem',
+                opacity: support.status === 'Unavailable' ? 0.75 : 1,
               }}
             >
-              <div style={{ fontWeight: 700 }}>{support.title}</div>
-              <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{support.detail}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <span style={{ fontWeight: 700 }}>{support.title}</span>
+                {support.status && (
+                  <span
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      padding: '0.1rem 0.4rem',
+                      borderRadius: 'var(--radius-sm, 4px)',
+                      background: 'var(--bg)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    {support.status}
+                  </span>
+                )}
+              </div>
+              {support.href ? (
+                <a
+                  href={support.href}
+                  style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: '0.88rem', wordBreak: 'break-all' }}
+                >
+                  {support.detail}
+                </a>
+              ) : (
+                <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{support.detail}</div>
+              )}
             </div>
           ))}
         </div>
